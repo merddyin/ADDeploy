@@ -1,0 +1,1 @@
+Remove-Module PSSQLite

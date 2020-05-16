@@ -1,0 +1,46 @@
+﻿{
+    "OptionAnalyzeCode":  true,
+    "FunctionTemplates":  "src\\templates",
+    "ModuleDescription":  "Creates OU and base delegation structures",
+    "BaseReleaseFolder":  "release",
+    "BuildReportsFolder":  "buildreports",
+    "ScratchFolder":  "temp",
+    "BuildToolFolder":  "build",
+    "Encoding":  "utf8",
+    "OptionSensitiveTermsInitialized":  false,
+    "ModuleTags":  [
+                       "Tools",
+                       "AD",
+                       "provision",
+                       "delegation",
+                       "ESAE"
+                   ],
+    "PublicFunctionSource":  "src\\public",
+    "ModuleToBuild":  "ADDeploy",
+    "OptionRunPlatyPSVerbose":  false,
+    "ModuleCopyright":  "(c) 2019 Topher Whitfield. All rights reserved.",
+    "OptionCombineFiles":  true,
+    "AdditionalModulePaths":  [
+                                  "plugins"
+                              ],
+    "OptionSanitizeSensitiveTerms":  false,
+    "OptionGenerateReadTheDocs":  true,
+    "Force":  false,
+    "ModuleAuthor":  "Avanade",
+    "PrivateFunctionSource":  "src\\private",
+    "OtherModuleSource":  "src\\other",
+    "FirstRun":  false,
+    "NugetAPIKey":  "",
+    "OptionTranscriptLogFile":  "BuildTranscript.Log",
+    "OptionSensitiveTerms":  [
+                                 "topher.whitfield"
+                             ],
+    "ForceInstallModule":  false,
+    "ModuleWebsite":  "https://github.com/merddyin/ADDeploy",
+    "BaseSourceFolder":  "src",
+    "ModuleLicenseURI":  "https://raw.githubusercontent.com/merddyin/ADDeploy/master/LICENSE",
+    "ModuleVersion":  "0.4.0",
+    "OptionTranscriptEnabled":  false,
+    "OptionUpdateVersionAfterPublishing":  true,
+    "OptionCodeHealthReport":  true
+}

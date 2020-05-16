@@ -1,0 +1,17 @@
+TOPIC
+    about_ADDeploy
+
+SHORT DESCRIPTION
+    Creates OU and base delegation structures
+
+LONG DESCRIPTION
+    Creates OU and base delegation structures
+
+EXAMPLES
+    TBD
+
+KEYWORDS
+    Tools,AD,provision,delegation,ESAE
+
+SEE ALSO
+    https://github.com/merddyin/ADDeploy
