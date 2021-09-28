@@ -26,7 +26,7 @@
     "OptionSanitizeSensitiveTerms":  false,
     "OptionGenerateReadTheDocs":  true,
     "Force":  false,
-    "ModuleAuthor":  "Avanade",
+    "ModuleAuthor":  "Christopher Whitfield",
     "PrivateFunctionSource":  "src\\private",
     "OtherModuleSource":  "src\\other",
     "FirstRun":  false,
@@ -39,7 +39,7 @@
     "ModuleWebsite":  "https://github.com/merddyin/ADDeploy",
     "BaseSourceFolder":  "src",
     "ModuleLicenseURI":  "https://raw.githubusercontent.com/merddyin/ADDeploy/master/LICENSE",
-    "ModuleVersion":  "0.4.0",
+    "ModuleVersion":  "0.4.1",
     "OptionTranscriptEnabled":  false,
     "OptionUpdateVersionAfterPublishing":  true,
     "OptionCodeHealthReport":  true

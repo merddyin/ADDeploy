@@ -16,7 +16,7 @@ if ((Get-Variable 'BuildEnv' -ErrorAction:SilentlyContinue) -eq $null) {
         ForceInstallModule = $False
         Encoding = 'utf8'
         ModuleToBuild = 'ADDeploy'
-        ModuleVersion = '0.4.0'
+        ModuleVersion = '0.4.1'
         ModuleWebsite = 'https://github.com/merddyin/ADDeploy'
         ModuleCopyright = "(c) $((get-date).Year.ToString()) Topher Whitfield. All rights reserved."
         ModuleLicenseURI = 'https://raw.githubusercontent.com/merddyin/ADDeploy/master/LICENSE'

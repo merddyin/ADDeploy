@@ -1,4 +1,4 @@
-# Contributing to AVADeployAD
+# Contributing to ADDeploy
 
 Project Site: [https://github.com/merddyin/ADDeploy](https://github.com/merddyin/ADDeploy)
 

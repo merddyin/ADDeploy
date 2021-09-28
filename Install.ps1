@@ -1,4 +1,4 @@
-# Run this in an administrative PowerShell prompt to install the AVADeployAD PowerShell module:
+# Run this in an administrative PowerShell prompt to install the ADDeploy PowerShell module:
 #
 # 	iex (New-Object Net.WebClient).DownloadString("https://raw.githubusercontent.com/merddyin/ADDeploy/master/Install.ps1")
 
