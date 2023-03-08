@@ -1,40 +1,37 @@
 function ConvertTo-Elements {
 <#
     .SYNOPSIS
-        Short description
+        Converts TDG to OU path and OU path to TDG
 
     .DESCRIPTION
-        Long description
+        Support function to convert TDG names or OU paths into components for consumption by public functions
 
-    .PARAMETER exampleparam
-        Description of parameter and required elements
+    .PARAMETER SourceValue
+        Source value to be converted
+
+    .PARAMETER Domain
+        Optional domain to use as part of conversion
 
     .EXAMPLE
-        Example of how to use this cmdlet
+        PS C:\> $result = $Objects | ConvertTo-Elements
 
     .EXAMPLE
         Another example of how to use this cmdlet
 
-    .INPUTS
-        Inputs to this cmdlet (if any)
-
-    .OUTPUTS
-        Output from this cmdlet (if any)
-
     .NOTES
-        Help Last Updated: 08/07/2019
+        Help Last Updated: 11/8/2022
 
-        Cmdlet Version: 0.1
-        Cmdlet Status: (Alpha/Beta/Release-Functional/Release-FeatureComplete)
+        Cmdlet Version: 1.2
+        Cmdlet Status: Release
 
-        Copyright (c) Topher Whitfield. All rights reserved.
+        Copyright (c) Deloitte. All rights reserved.
 
         Use of this source code is subject to the terms of use as outlined in the included LICENSE.RTF file, or elsewhere within this file. This
         source code is provided 'AS IS', with NO WARRANTIES either expressed or implied. Use of this code within your environment is done at your
-        own risk, and Topher Whitfield assumes no liability.
+        own risk, and Deloitte assumes no liability.
 
     .LINK
-        https://mer-bach.com
+        https://deloitte.com
 #>
     [CmdletBinding()]
     [OutputType("System.Array")]
@@ -68,17 +65,14 @@ function ConvertTo-Elements {
         }
 
         if($MaxLevel){
+            Write-Debug "`t`t`t`t`t`t`t`tMaxLevel - $MaxLevel"
             switch ($MaxLevel) {
                 {$_ -ge 1} {
-                    $OUOrgLevel1 = $($OUOrg | Where-Object{$_.OU_orglvl -eq 1}).OU_name
+                    $OUOrgLevel1 = $($OUOrg | Where-Object{$_.OU_orglvl -eq 3}).OU_name
                 }
 
                 {$_ -ge 2} {
-                    $OUOrgLevel2 = $($OUOrg | Where-Object{$_.OU_orglvl -eq 2}).OU_name
-                }
-
-                {$_ -eq 3} {
-                    $OUOrgLevel3 = $($OUOrg | Where-Object{$_.OU_orglvl -eq 3}).OU_name
+                    $OUOrgLevel2 = $($OUOrg | Where-Object{$_.OU_orglvl -eq 4}).OU_name
                 }
             }
         }
@@ -136,7 +130,7 @@ function ConvertTo-Elements {
 
                             Default {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE1:`tElement 0 does not match Tier"
-                                $TierID = "NON"
+                                $TierID = $null
                             }
                         }
                     }
@@ -152,7 +146,7 @@ function ConvertTo-Elements {
 
                             Default {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE2:`tElement 1 does not match Focus"
-                                $FocusID = "NON"
+                                $FocusID = $null
                             }
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected FocusID:`t$FocusID"
@@ -173,15 +167,20 @@ function ConvertTo-Elements {
                                     $OrgLvl1 = $ItemLevel3
                                 }
 
+								{$_ -match 'Provision|Deprovision'} {
+                                    Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE3:`tElement 2 matches Staging Level 1 Org"
+									$OrgLvl1 = $ItemLevel3
+								}
+								
                                 Default {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE3:`tElement 2 does not match Level 1 Org"
-                                    $OrgLvl1 = "NoMatch"
+                                    $OrgLvl1 = $null
                                 }
                             }
 
                         }else{
                             Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE3:`tNo Level 1 Org Data Available"
-                            $OrgLvl1 = "NoData"
+                            $OrgLvl1 = $null
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected OrgLvl1:`t$OrgLvl1"
                     }
@@ -194,21 +193,21 @@ function ConvertTo-Elements {
                             Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE4 MaxLevel:`t1 (Object Type)"
 
                             switch ($ItemLevel4) {
-                                {$_ -match $(($ObjInfo | ?{$_.OBJ_TypeOU -ne $null} | Select OBJ_TypeOU -Unique).OBJ_TypeOU -join "|")} {
+                                {$_ -match $(($ObjInfo | Where-Object{$null -ne $_.OBJ_TypeOU} | Select-Object OBJ_TypeOU -Unique).OBJ_TypeOU -join "|")} {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE4:`tElement 3 matches Object Type"
 
                                     $ObjType = $ItemLevel4
 
-                                    $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_id
+                                    $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_id
 
-                                    $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_refid
+                                    $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_refid
                                 }
 
                                 Default {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE4:`tElement 3 does not match Object Type"
                                     $ObjTypeDBID = 0
-                                    $ObjType = "NoMatch"
-                                    $ObjTypeRefID = "NON"
+                                    $ObjType = $null
+                                    $ObjTypeRefID = $null
                                 }
                             }
                             Write-Verbose "`t`t`t`t`t`t`t`tDetected Object Type Elements"
@@ -231,7 +230,7 @@ function ConvertTo-Elements {
 
                                 Default {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE4:`tElement 3 does not match Level 2 Org"
-                                    $OrgLvl2 = "NoMatch"
+                                    $OrgLvl2 = $null
                                 }
                             }
 
@@ -248,7 +247,7 @@ function ConvertTo-Elements {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5 MaxLevel:`t1 (Object Sub-Type)"
 
                                 switch ($ItemLevel5) {
-                                    {$_ -match $(($ObjInfo | Where-Object{$_.OBJ_SubTypeOU -ne $null} | Select OBJ_SubTypeOU -Unique).OBJ_SubTypeOU -join "|")} {
+                                    {$_ -match $(($ObjInfo | Where-Object{$null -ne $_.OBJ_SubTypeOU} | Select-Object OBJ_SubTypeOU -Unique).OBJ_SubTypeOU -join "|")} {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5:`tElement 4 matches Object Sub-Type"
 
                                         $ObjSubType = $ItemLevel5
@@ -261,8 +260,8 @@ function ConvertTo-Elements {
                                     Default {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5:`tElement 4 does not match Object Sub-Type"
                                         $ObjSubTypeDBID = 0
-                                        $ObjSubType = "NoMatch"
-                                        $ObjSubTypeRefID = "NON"
+                                        $ObjSubType = $null
+                                        $ObjSubTypeRefID = $null
                                     }
                                 }
                                 Write-Verbose "`t`t`t`t`t`t`t`tDetected Object Sub-Type Elements"
@@ -274,21 +273,21 @@ function ConvertTo-Elements {
                             {$_ -eq 2} {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5 MaxLevel:`t2 (Object Type)"
                                 switch ($ItemLevel5) {
-                                    {$_ -match $(($ObjInfo | Where-Object{$_.OBJ_TypeOU -ne $null} | Select OBJ_TypeOU -Unique).OBJ_TypeOU -join "|")} {
+                                    {$_ -match $(($ObjInfo | Where-Object{$null -ne $_.OBJ_TypeOU} | Select-Object OBJ_TypeOU -Unique).OBJ_TypeOU -join "|")} {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5:`tElement 4 matches Object Type"
 
                                         $ObjType = $ItemLevel5
 
-                                        $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_id
+                                        $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_id
 
-                                        $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_refid
+                                        $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_refid
                                     }
 
                                     Default {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5:`tElement 4 does not match Object Type"
                                         $ObjTypeDBID = 0
-                                        $ObjType = "NoMatch"
-                                        $ObjTypeRefID = "NON"
+                                        $ObjType = $null
+                                        $ObjTypeRefID = $null
                                     }
                                 }
                                 Write-Verbose "`t`t`t`t`t`t`t`tDetected Object Type Elements"
@@ -312,7 +311,7 @@ function ConvertTo-Elements {
 
                                     Default {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5:`tElement 4 does not match Level 3 Org"
-                                        $OrgLvl3 = "NoMatch"
+                                        $OrgLvl3 = $null
                                     }
                                 }
 
@@ -331,7 +330,7 @@ function ConvertTo-Elements {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE6 MaxLevel:`t2 (Object Sub-Type)"
 
                                 switch ($ItemLevel6) {
-                                    {$_ -match $(($ObjInfo | Where-Object{$_.OBJ_SubTypeOU -ne $null} | Select OBJ_SubTypeOU -Unique).OBJ_SubTypeOU -join "|")} {
+                                    {$_ -match $(($ObjInfo | Where-Object{$null -ne $_.OBJ_SubTypeOU} | Select-Object OBJ_SubTypeOU -Unique).OBJ_SubTypeOU -join "|")} {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE6:`tElement 5 matches Object Sub-Type"
 
                                         $ObjSubType = $ItemLevel6
@@ -344,8 +343,8 @@ function ConvertTo-Elements {
                                     Default {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE6:`tElement 5 does not match Object Sub-Type"
                                         $ObjSubTypeDBID = 0
-                                        $ObjSubType = "NoMatch"
-                                        $ObjSubTypeRefID = "NON"
+                                        $ObjSubType = $null
+                                        $ObjSubTypeRefID = $null
                                     }
                                 }
                                 Write-Verbose "`t`t`t`t`t`t`t`tDetected Object Sub-Type Elements"
@@ -357,21 +356,21 @@ function ConvertTo-Elements {
                             {$_ -eq 3} {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE6 MaxLevel:`t3 (Object Type)"
                                 switch ($ItemLevel6) {
-                                    {$_ -match $(($ObjInfo | Where-Object{$_.OBJ_TypeOU -ne $null} | Select OBJ_TypeOU -Unique).OBJ_TypeOU -join "|")} {
+                                    {$_ -match $(($ObjInfo | Where-Object{$null -ne $_.OBJ_TypeOU} | Select-Object OBJ_TypeOU -Unique).OBJ_TypeOU -join "|")} {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE6:`tElement 5 matches Object Type"
 
                                         $ObjType = $ItemLevel6
 
-                                        $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_id
+                                        $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_id
 
-                                        $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_refid
+                                        $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_refid
                                     }
 
                                     Default {
                                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE6:`tElement 5 does not match Object Type"
                                         $ObjTypeDBID = 0
-                                        $ObjType = "NoMatch"
-                                        $ObjTypeRefID = "NON"
+                                        $ObjType = $null
+                                        $ObjTypeRefID = $null
                                     }
                                 }
                                 Write-Verbose "`t`t`t`t`t`t`t`tDetected Object Type Elements"
@@ -387,7 +386,7 @@ function ConvertTo-Elements {
                         Write-Debug "`t`t`t`t`t`t`t`tSwitch - EQ7 Source Value:`t$ItemLevel7"
 
                         switch ($ItemLevel7) {
-                            {$_ -match $(($ObjInfo | Where-Object{$_.OBJ_SubTypeOU -ne $null} | Select OBJ_SubTypeOU -Unique).OBJ_SubTypeOU -join "|")} {
+                            {$_ -match $(($ObjInfo | Where-Object{$null -ne $_.OBJ_SubTypeOU} | Select-Object OBJ_SubTypeOU -Unique).OBJ_SubTypeOU -join "|")} {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - EQ7:`tElement 6 matches Object Sub-Type"
 
                                 $ObjSubType = $ItemLevel7
@@ -400,8 +399,8 @@ function ConvertTo-Elements {
                             Default {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - EQ7:`tElement 6 does not match Object Sub-Type"
                                 $ObjSubTypeDBID = 0
-                                $ObjSubType = "NoMatch"
-                                $ObjSubTypeRefID = "NON"
+                                $ObjSubType = $null
+                                $ObjSubTypeRefID = $null
                             }
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected Object Sub-Type Elements"
@@ -443,7 +442,7 @@ function ConvertTo-Elements {
 
                             Default {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE2:`tElement 0 does not match Tier"
-                                $TierID = "NON"
+                                $TierID = $null
                             }
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected TierID:`t$TierID"
@@ -462,7 +461,7 @@ function ConvertTo-Elements {
 
                             Default {
                                 Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE2:`tElement 1 does not match Focus"
-                                $FocusID = "NON"
+                                $FocusID = $null
                             }
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected FocusID:`t$FocusID"
@@ -474,7 +473,7 @@ function ConvertTo-Elements {
                         $ItemLevel3 = ($PathElements[2])
                         if($OUOrgLevel1){
                             switch ($ItemLevel3) {
-                                {$_ -match $(($OUOrg | Where-Object{$_.OU_orglvl -eq 1}).OU_name -join "|")} {
+                                {$_ -match $(($OUOrg | Where-Object{$_.OU_orglvl -eq 3}).OU_name -join "|")} {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE3:`tElement 2 matches Level 1 Org"
                                     $OrgLvl1 = $ItemLevel3
                                 }
@@ -486,12 +485,12 @@ function ConvertTo-Elements {
 
                                 Default {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE3:`tElement 2 does not match Level 1 Org"
-                                    $OrgLvl1 = "NoMatch"
+                                    $OrgLvl1 = $null
                                 }
                             }
                         }else{
                             Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE3:`tNo Level 1 Org Data Available"
-                            $OrgLvl1 = "NoData"
+                            $OrgLvl1 = $null
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected OrgLvl1:`t$OrgLvl1"
                     }
@@ -501,7 +500,7 @@ function ConvertTo-Elements {
                         $ItemLevel4 = ($PathElements[3])
                         if($OUOrgLevel2){
                             switch ($ItemLevel4) {
-                                {$_ -match $(($OUOrg | Where-Object{$_.OU_orglvl -eq 2}).OU_name -join "|")} {
+                                {$_ -match $(($OUOrg | Where-Object{$_.OU_orglvl -eq 4}).OU_name -join "|")} {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE4:`tElement 3 matches Level 2 Org"
                                     $OrgLvl2 = $ItemLevel4
                                 }
@@ -513,12 +512,12 @@ function ConvertTo-Elements {
 
                                 Default {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE4:`tElement 3 does not match Level 2 Org"
-                                    $OrgLvl2 = "NoMatch"
+                                    $OrgLvl2 = $null
                                 }
                             }
                         }else{
                             Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE3:`tNo Level 2 Org Data Available"
-                            $OrgLvl2 = "NoData"
+                            $OrgLvl2 = $null
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected OrgLvl2:`t$OrgLvl2"
                     }
@@ -540,12 +539,12 @@ function ConvertTo-Elements {
 
                                 Default {
                                     Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE5:`tElement 4 does not match Level 3 Org"
-                                    $OrgLvl3 = "NoMatch"
+                                    $OrgLvl3 = $null
                                 }
                             }
                         }else{
                             Write-Debug "`t`t`t`t`t`t`t`tSwitch - GE4:`tNo Level 3 Org Data Available"
-                            $OrgLvl3 = "NoData"
+                            $OrgLvl3 = $null
                         }
                         Write-Verbose "`t`t`t`t`t`t`t`tDetected OrgLvl3`t$OrgLvl3"
                     }
@@ -574,10 +573,10 @@ function ConvertTo-Elements {
                             $ObjFocusID = $ObjItem.OBJ_relatedfocus
                             Write-Debug "`t`t`t`t`t`t`t`tObjFocusID:`t$ObjFocusID"
 
-                            $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_refid
+                            $ObjTypeRefID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_refid
                             Write-Debug "`t`t`t`t`t`t`t`tObjTypeRefID:`t$ObjTypeRefID"
 
-                            $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $_.OBJ_SubTypeOU -eq $null}).OBJ_id
+                            $ObjTypeDBID = ($ObjInfo | Where-Object{$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $ObjType -and $null -eq $_.OBJ_SubTypeOU}).OBJ_id
                             Write-Debug "`t`t`t`t`t`t`t`tObjSubTypeDBID:`t$ObjSubTypeDBID"
 
                         }else{
@@ -589,18 +588,18 @@ function ConvertTo-Elements {
                             $ObjTypeDBID = $ObjItem.OBJ_id
                             Write-Verbose "`t`t`t`t`t`t`t`tObjSubTypeDBID:`t$ObjTypeDBID"
 
-                            $ObjSubType = "None"
-                            $ObjSubTypeRefID = "NON"
+                            $ObjSubType = $null
+                            $ObjSubTypeRefID = $null
                             $ObjSubTypeDBID = 0
                         }
                     }else{
                         Write-Verbose "`t`t`t`t`t`t`t`tNo object match found"
 
-                        $ObjType = "Unknown"
-                        $ObjTypeRefID = "NON"
+                        $ObjType = $null
+                        $ObjTypeRefID = $null
                         $ObjTypeDBID = 0
-                        $ObjSubType = "Unknown"
-                        $ObjSubTypeRefID = "NON"
+                        $ObjSubType = $null
+                        $ObjSubTypeRefID = $null
                         $ObjSubTypeDBID = 0
                     }
                 }else{

@@ -1,43 +1,65 @@
 function Export-ADDModuleData {
-    <#
-        .SYNOPSIS
-            Exports data to the embedded Sqlite data source from a module function
+<#
+    .SYNOPSIS
+        Export Azure AD Module Data
 
-        .DESCRIPTION
-            This cmdlet initiates a connection to the ADDeploySettings.sqlite data source. After establishing the connection, the function
-            executes one or more predefined queries to populate data into the Sqlite database for later future uses of the module.
+    .DESCRIPTION
+        Export Azure AD Module Data
 
-            Note: Updates the embeded DB copy stored with the loaded module instance only - Updated DB will need to be redistributed to all
-            module users, ideally via update of the module distribution package stored in a central location
+    .PARAMETER DataSet
+        
 
-        .PARAMETER DataSet
-            Used to specify the name of a previously defined data set to be populated or updated
+    .PARAMETER QueryValue
+        
 
-        .PARAMETER DataQuery
-            Used to specify a custom query for pushing data into the database
+    .PARAMETER QueryObjects
+       
+    
+    .PARAMETER DataQuery
+        
 
-        .EXAMPLE
-            Placeholder text
+    .EXAMPLE
+        Example of how to use this cmdlet
 
-        .NOTES
-            Module developed by Topher Whitfield for deploying and maintaining a 'Red Forest' environment and all use and distribution rights remain in force.
-            Help Last Updated: 7/22/2019
+    .EXAMPLE
+        Another example of how to use this cmdlet
 
-        .LINK
-            https://mer-bach.com
+    .INPUTS
+        Inputs to this cmdlet (if any)
 
-    #>
-[CmdletBinding()]
+    .OUTPUTS
+        Output from this cmdlet (if any)
+
+    .NOTES
+        Help Last Updated: 10/26/2020
+
+        Cmdlet Version: 1.0
+        Cmdlet Status: Release
+
+        Copyright (c) Deloitte. All rights reserved.
+
+        Use of this source code is subject to the terms of use as outlined in the included LICENSE file, or elsewhere within this file. This
+        source code is provided 'AS IS', with NO WARRANTIES either expressed or implied. Use of this code within your environment is done at your
+        own risk, and Deloitte assumes no liability.
+
+    .LINK
+        https://deloitte.com
+#>
+    [CmdletBinding()]
     Param(
         [Parameter(Mandatory=$true,Position=0,ParameterSetName="StandardQuery")]
+        [Parameter(Mandatory=$true,Position=0,ParameterSetName="UpdateQuery")]
         [string]$DataSet,
 
         [Parameter(Position=1,ParameterSetName="StandardQuery")]
         [string[]]$QueryValue,
 
+        [Parameter(Mandatory=$true,ParameterSetName="UpdateQuery",ValueFromPipeline=$true)]
+        [System.Management.Automation.PSCustomObject]$QueryObjects,
+
         [Parameter(Mandatory=$true,Position=0,ParameterSetName="CustomQuery")]
         [string]$DataQuery
-        )
+    )
 
     Begin {
         $FunctionName = $pscmdlet.MyInvocation.MyCommand.Name
@@ -70,24 +92,70 @@ function Export-ADDModuleData {
 
     Process {
         Write-Debug "`t`t`t`t`t`t`t`tSet query text based on specified inputs"
-        if($($PSCmdlet.ParameterSetName) -like "StandardQuery"){
-            $QType = "DataSet"
-            switch ($DataSet) {
-                "SetRunData" {
-                    $Query = "UPDATE AP_Rundata SET OB_runvalue = '$($QueryValue[0])' WHERE OB_item = '$($QueryValue[1])'"
-                }
+        switch ($PSCmdlet.ParameterSetName) {
+            "StandardQuery" {
+                $QType = "DataSet"
+                switch ($DataSet) {
+                    "SetRunData" {
+                        $Query = "UPDATE AP_Rundata SET OB_runvalue = '$($QueryValue[0])' WHERE OB_item = '$($QueryValue[1])'"
+                    }
+        
+                    "UpdateOrgEntry" {
+    
+                    }
+                    "SetCustOUData"  {
+                        $Query = "UPDATE CUST_OU_Organization SET OU_enabled = '$($QueryValue[1])' WHERE OU_id = '$($QueryValue[0])'"
+                    }
 
-                "AddOrgEntry" {
+                    "AddOrgEntry"  {
+                        $Query = "INSERT INTO CUST_OU_Organization (OU_name,OU_orglvl,OU_parent,OU_friendlyname,OU_tierassoc) VALUES ('$($QueryValue[0])',3,null,'$($QueryValue[1])','$($QueryValue[2])')"
+                    }
 
-                }
+                    "AddOrgEntryADM"  {
+                        $Query = "INSERT INTO CUST_OU_Organization (OU_name,OU_orglvl,OU_parent,OU_friendlyname,OU_admin,OU_server,OU_standard,OU_tierassoc) VALUES ('$($QueryValue[0])',3,null,'$($QueryValue[1])',1,0,0,'$($QueryValue[2])')"
+                    }
 
-                "UpdateOrgEntry" {
+                    "AddOrgEntrySRV"  {
+                        $Query = "INSERT INTO CUST_OU_Organization (OU_name,OU_orglvl,OU_parent,OU_friendlyname,OU_admin,OU_server,OU_standard,OU_tierassoc) VALUES ('$($QueryValue[0])',3,null,'$($QueryValue[1])',0,1,0,'$($QueryValue[2])')"
+                    }
 
+                    "AddOrgEntrySTD"  {
+                        $Query = "INSERT INTO CUST_OU_Organization (OU_name,OU_orglvl,OU_parent,OU_friendlyname,OU_admin,OU_server,OU_standard,OU_tierassoc) VALUES ('$($QueryValue[0])',3,null,'$($QueryValue[1])',0,0,1,'$($QueryValue[2])')"
+                    }
+
+                    "AddOrgEntrySPL"  {
+                        $Query = "INSERT INTO CUST_OU_Organization (OU_name,OU_orglvl,OU_parent,OU_friendlyname,OU_admin,OU_server,OU_standard,OU_tierassoc) VALUES ('$($QueryValue[0])',3,null,'$($QueryValue[1])','$($QueryValue[2])','$($QueryValue[3])','$($QueryValue[4])','$($QueryValue[5])')"
+                    }
+
+                    "RemoveOrgEntry" {
+                        $Query = "DELETE FROM CUST_OU_Organization WHERE OU_name LIKE '$($QueryValue[0])' AND $($QueryValue[1]) = 1 and OU_tierassoc = '$($QueryValue[2])'"
+                    }
+
+                    "SetAttributeSchema" {
+                        $Query = "UPDATE AD_Attributes SET OBJ_Guid = '$($QueryValue[1])' WHERE OBJ_name = '$($QueryValue[0])'"
+                    }
+                    "InsertAttributeSchema" {
+                        $Query = "INSERT INTO AD_Attributes (OBJ_Name,OBJ_guid,OBJ_adtype) VALUES ('$($QueryValue[0])','$($QueryValue[1])','attributeSchema')"
+                    }
+                    "SetClassGUID" {
+                        $Query = "UPDATE AD_Classes SET OBJ_Guid = '$($QueryValue[1])' WHERE OBJ_name = '$($QueryValue[0])'"
+                    }
+                    "InsertClassGUID" {
+                        $Query = "INSERT INTO AD_Classes (OBJ_Name,OBJ_guid) VALUES ('$($QueryValue[0])','$($QueryValue[1])')"
+                    }
                 }
             }
-        }else{
-            $QType = "CustomQuery"
-            $Query = $DataQuery
+            "UpdateQuery" {
+                switch ($DataSet) {
+                    "InsertOrgData" {
+                        $QueryObjects | Out-DataTable | Invoke-SQLiteBulkCopy -SQLiteConnection $conn -Table "CUST_OU_Organization"
+                    }
+                }
+            }
+            Default {
+                $QType = "CustomQuery"
+                $Query = $DataQuery
+            }
         }
     }
 
@@ -97,11 +165,12 @@ function Export-ADDModuleData {
 
         try
         {
+           
             $Output = Invoke-SqliteQuery -Connection $conn -Query $Query
             if($Output){
                 Write-Verbose "`t`t`t`t`t`t`t`tQuery Result:`tData Updated"
             }else{
-                Write-Verbose "`t`t`t`t`t`t`t`tQuery Result:`tNo Data Updated"
+                Write-Verbose "`t`t`t`t`t`t`t`tQuery Result:`tNo Results Returned"
             }
         }
         catch

@@ -41,47 +41,32 @@ function Install-ADDCoreComponents {
 #>
     [CmdletBinding(SupportsShouldProcess=$true,ConfirmImpact='Medium')]
     Param (
-        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
-        [System.DirectoryServices.DirectoryEntry]
-        $TargetPath,
-
         [Parameter()]
-        [Switch]$RunRedir,
-
-        [Parameter(DontShow)]
-        [Switch]$MTRun
+        [Switch]$NoRedir
     )
 
     begin {
-		$FunctionName = $pscmdlet.MyInvocation.MyCommand.Name
+        $FunctionName = $pscmdlet.MyInvocation.MyCommand.Name
         Write-Verbose "$($LP)`t`t------------------- $($FunctionName): Start -------------------"
         Write-Verbose ""
-        #TODO: Add WhatIf processing support to all action items
-
-        if($InitDep -eq 1){
-            $SkipCore = $True
-        }
-
+        #TODO: Identify what is causing multiple TC groups to be deployed for each tier
+        #TODO: Review and update variable contents to use global options from postload where possible
+        #TODO: Update redir functionality to eliminate requirement for AD Module (unless AD Module is needed for Audit SACL)
         if(!($MTRun)){
             Write-Progress -Id 15 -Activity "Deploy Core Components" -CurrentOperation "Initializing..." -ParentId 10
         }
 
         $DeployResults = @{}
 
-        $CoreGroups = $CoreOUs | Where-Object{$_.OU_type -like "Group"}
-        $DeployCoreResults = @{}
+        $CoreGroups = $CoreData | Where-Object{$_.OU_type -like "Group"}
+        $OUGlobal = ($CoreData | Where-Object {$_.OU_focus -like "Global"}).OU_name
+        Write-Verbose "OUGlobal `t $OUGlobal"
 
-        $PathsProcessed = 0
-        $PathsSkipped = 0
-        $SharedOUsCreated = 0
-        $SharedOUsExisting = 0
         $FailedCount = 0
         $TDGsCreated = 0
-        $TDGsExisting = 0
         $loopTimer = [System.Diagnostics.Stopwatch]::new()
-        $subloopTimer = [System.Diagnostics.Stopwatch]::new()
         $loopTimes = @()
-    }
+    } #End Begin block
 
     process {
         Write-Verbose ""
@@ -89,347 +74,85 @@ function Install-ADDCoreComponents {
         Write-Verbose ""
         $loopTimer.Start()
 
-		# Enforced .NET garbage collection to ensure memory utilization does not balloon
-		if($GCloopCount -eq 30){
-			Run-MemClean
-			$GCloopCount = 0
-		}
-
-        $TargetOUDe = $_
-        $TargetOUDN = $TargetOUDe.distinguishedName
-        Write-Verbose "$($LPP2)`t`tProcessing Path:`t$TargetOUDN"
-
-        $DNFocusID = ($TargetOUDN | Select-String -Pattern $($FocusDNRegEx -join "|")).Matches.Value
-        if($DNFocusID){
-            $FocusID = ($DNFocusID -split "=")[1]
-            Write-Verbose "$($LPP3)`t`tDerived FocusID:`t$FocusID"
+        # Enforced .NET garbage collection to ensure memory utilization does not balloon
+        if($GCloopCount -eq 30){
+            Invoke-MemClean
+            $GCloopCount = 0
         }
 
-        $DNTierID = ($TargetOUDN | Select-String -Pattern $($CETierDNRegEx -join "|")).Matches.Value
-        $FullTierID = ($DNTierID -split "=")[1]
-        $TierID = $TierHash[$FullTierID]
-        Write-Verbose "$($LPP3)`t`tDerived TierID:`t$TierID"
+        foreach($cOU in $($CETierHash.Values)){
+            $TierPath = "OU=$cOU,$DomDN"
+            Write-Verbose "TierPath: `t $TierPath"
+            $TierID = $TierHash["$cOU"]
 
-        if(!($MTRun)){
-            Write-Progress -Id 15 -Activity "Deploy $TierID Core Components" -CurrentOperation "Creating Shared Services OUs" -ParentId 10
-        }
+            foreach($FocusID in $($FocusHash.Values)){          
+                $ParentDN = "OU=Tasks,OU=$OUGlobal,OU=$($Focushash['Admin']),$TierPath"
+                Write-Verbose "ParentDN: `t $ParentDN"
+                $GlobalOU = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ParentDN")
+                Write-Verbose "GloballOU: `t $($GlobalOU.DistinguishedName)"
 
-        $FinalGlobalOUDE = New-Object System.Collections.Generic.List[System.DirectoryServices.DirectoryEntry]
-        $WFFinalGlobalOUDE = New-Object System.Collections.Generic.List[psobject]
-
-        if($FocusID -match $FocusHash["Admin"]){
-            Write-Verbose ""
-            Write-Verbose "$($LPP2)`t`tCreate Shared Svcs Elements"
-
-            #region SharedSvcsOrgOUs
-            Write-Verbose "$($LPP2)`t`tShared Svcs OU:`tOrg Lvl 1"
-            $GOUL1DN = "OU=$OUGlobal,$TargetOUDN"
-
-            if($pscmdlet.ShouldProcess($OUGlobal, "Create Shared Svcs Org Lvl 1")){
-                $GOUL1obj = New-ADDADObject -ObjName $OUGlobal -ObjParentDN $TargetOUDe.distinguishedName -ObjType "organizationalUnit"
-
-                if($GOUL1obj){
-                    switch ($GOUL1obj.State) {
-                        {$_ -like "New"} {
-                            Write-Verbose "$($LPP3)`t`tTask Outcome:`tSuccess"
-                            Write-Verbose ""
-                            $SharedOUsCreated ++
-                        }
-
-                        {$_ -like "Existing"} {
-                            Write-Verbose "$($LPP3)`t`tTask Outcome:`tAlready Exists"
-                            Write-Verbose ""
-                            $SharedOUsExisting ++
-                        }
-
-                        Default {
-                            Write-Verbose "$($LPP3)`t`tOutcome:`tFailed"
-                            Write-Verbose "$($LPP3)`t`tFail Reason:`t$($GOUL1obj.State)"
-                            $FailedCount ++
-                            Write-Error "!!! CATASTROPHIC FAILURE !!! Failed to create Level 1 Global OU - Quitting" -ErrorAction Stop
-                        }
-                    }
-                }else {
-                    Write-Verbose "$($LPP3)`t`tOutcome:`tFailed"
-                    Write-Verbose "$($LPP3)`t`tFail Reason:`tUnknown - No Lvl 1 Object Returned"
-                    $FailedCount ++
-                    Write-Error "!!! CATASTROPHIC FAILURE !!! Failed to create Level 1 Global OU - Quitting" -ErrorAction Stop
-                }
-            }else {
-                Write-Verbose ""
-                Write-Verbose "$($LPP3)`t`t+++ WhatIf Detected - Would create OU ($OUGlobal) in path $TargetOUDN +++"
-                Write-Verbose ""
-
-                $WFFinalGlobalOUDE.Add($GOUL1DN)
-                $SharedOUsCreated ++
-            }
-
-            if($MaxLevel -ge 2){
-                Write-Verbose "$($LPP2)`t`tShared Svcs OU:`tOrg Lvl 2"
-                $GOUL2DN = "OU=$OUGlobal,$GOUL1DN"
-
-                if($pscmdlet.ShouldProcess($OUGlobal, "Create Shared Svcs Org Lvl 2")){
-                    $GOUL2obj = New-ADDADObject -ObjName $OUGlobal -ObjParentDN $GOUL1obj.DEObj.distinguishedName -ObjType "organizationalUnit"
-
-                    if($GOUL2obj){
-                        switch ($GOUL2obj.State) {
-                            {$_ -like "New"} {
-                                Write-Verbose "$($LPP3)`t`tTask Outcome:`tSuccess"
-                                Write-Verbose ""
-                                $SharedOUsCreated ++
-                            }
-
-                            {$_ -like "Existing"} {
-                                Write-Verbose "$($LPP3)`t`tTask Outcome:`tAlready Exists"
-                                Write-Verbose ""
-                                $SharedOUsExisting ++
-                            }
-
-                            Default {
-                                Write-Verbose "$($LPP3)`t`tOutcome:`tFailed"
-                                Write-Verbose "$($LPP3)`t`tFail Reason:`t$($GOUL2obj.State)"
-                                $FailedCount ++
-                                Write-Error "!!! CATASTROPHIC FAILURE !!! Failed to create Level 2 Global OU - Quitting" -ErrorAction Stop
-                            }
-                        } #EndSwitch - GOUL2obj.State
-
-                    }else {
-                        Write-Verbose "$($LPP3)`t`tOutcome:`tFailed"
-                        Write-Verbose "$($LPP3)`t`tFail Reason:`tUnknown - No Lvl 2 Object Returned"
-                        $FailedCount ++
-                        Write-Error "!!! CATASTROPHIC FAILURE !!! Failed to create Level 2 Global OU - Quitting" -ErrorAction Stop
-                    } #EndIf - GOUL2obj Exists
-
-                }else {
-                    Write-Verbose ""
-                    Write-Verbose "$($LPP3)`t`t+++ WhatIf Detected - Would create OU ($OUGlobal) in path $GOUL1DN +++"
-                    Write-Verbose ""
-                    $SharedOUsCreated ++
-                } #EndIf - WhatIf Check
-
-                if($MaxLevel -eq 3){
-                    Write-Verbose "$($LPP2)`t`tShared Svcs OU:`tOrg Lvl 3"
-                    $GOUL3DN = "OU=$OUGlobal,$GOUL2DN"
-
-                    if($pscmdlet.ShouldProcess($OUGlobal, "Create Shared Svcs Org Lvl 3")){
-                        $GOUL3obj = New-ADDADObject -ObjName $OUGlobal -ObjParentDN $GOUL2obj.DEObj.distinguishedName -ObjType "organizationalUnit"
-
-                        if($GOUL3obj){
-                            switch ($GOUL3obj.State) {
-                                {$_ -like "New"} {
-                                    Write-Verbose "$($LPP3)`t`tTask Outcome:`tSuccess"
-                                    Write-Verbose ""
-                                    $FinalGlobalOUDE.Add($GOUL3obj.DEObj)
-                                    $SharedOUsCreated ++
-                                }
-
-                                {$_ -like "Existing"} {
-                                    Write-Verbose "$($LPP3)`t`tTask Outcome:`tAlready Exists"
-                                    Write-Verbose ""
-                                    $FinalGlobalOUDE.Add($GOUL3obj.DEObj)
-                                    $SharedOUsExisting ++
-                                }
-
-                                Default {
-                                    Write-Verbose "$($LPP3)`t`tOutcome:`tFailed"
-                                    Write-Verbose "$($LPP3)`t`tFail Reason:`t$($GOUL3obj.State)"
-                                    $FailedCount ++
-                                    Write-Error "!!! CATASTROPHIC FAILURE !!! Failed to create Level 3 Global OU - Quitting" -ErrorAction Stop
-                                }
-                            } #EndSwitch - GOUL3obj.State
-                        }else {
-                            Write-Verbose "$($LPP3)`t`tOutcome:`tFailed"
-                            Write-Verbose "$($LPP3)`t`tFail Reason:`tUnknown - No Lvl 3 Object Returned"
-                            $FailedCount ++
-                            Write-Error "!!! CATASTROPHIC FAILURE !!! Failed to create Level 3 Global OU - Quitting" -ErrorAction Stop
-                        } #EndIf - $GOUL3obj Exists
-
-                    }else {
-                        Write-Verbose ""
-                        Write-Verbose "$($LPP3)`t`t+++ WhatIf Detected - Would create OU ($OUGlobal) in path $GOUL2DN and add result to placeholder +++"
-                        Write-Verbose ""
-
-                        $WFFinalGlobalOUDE.Add($GOUL3DN)
-                        $SharedOUsCreated ++
-                    } #EndIf - WhatIf Check
-
-                }else {
-                    if($pscmdlet.ShouldProcess($OUGlobal, "Add Lvl 2 output to placeholder")){
-                        $FinalGlobalOUDE.Add($GOUL2obj.DEObj)
-                    }else {
-                        $WFFinalGlobalOUDE.Add($GOUL2DN)
-                    } #EndIf - WhatIf Check
-
-                } #EndIf - MaxLevel 3 Check
-
-            }else {
-                if($pscmdlet.ShouldProcess($OUGlobal, "Add Lvl 1 output to placeholder")){
-                    $FinalGlobalOUDE.Add($GOUL1obj.DEObj)
-                }else {
-                    $WFFinalGlobalOUDE.Add($GOUL1DN)
-                } #EndIf - WhatIf Check
-
-            } #EndIf - MaxLevel 2 Check
-            #endregion SharedSvcsOrgOUs
-
-            #region SharedSvcsObjOU-TDG-ACLs
-            if(!($MTRun)){
-                Write-Progress -Id 15 -Activity "Deploy $TierID Core Components" -CurrentOperation "Creating Shared Services Object Type OUs" -ParentId 10
-            }
-            Write-Verbose "$($LPP2)`t`tAdding Object Type Support"
-
-            if($FinalGlobalOUDE){
-                $StageGlobalOU = $FinalGlobalOUDE
-                $OrgOUResults = $true
-            }elseif($WFFinalGlobalOUDE){
-                $StageGlobalOU = $WFFinalGlobalOUDE
-                $OrgOUResults = $true
-            }else{
-                $OrgOUResults = $false
-            } #EndIf - SharedSvcs Task Output Check
-
-            Write-Verbose "$($LPP2)`t`tObject Type OUs"
-            $GBLObjTypeOUs = $StageGlobalOU | New-ADDObjLvlOU -ChainRun -PipelineCount $($StageGlobalOU.Count)
-
-            if($GBLObjTypeOUs){
-                $ObjectOUResults = $true
-
-                Write-Verbose "$($LPP3)`t`tTask Outcome:`tSuccess"
-                Write-Verbose ""
-
-                if(!($MTRun)){
-                    Write-Progress -Id 15 -Activity "Deploy $TierID Core Components" -CurrentOperation "Creating Shared Services Task Delegation Groups" -ParentId 10
-                }
-                Write-Verbose "$($LPP2)`t`tCreate TDGs"
-                $TDGPipeCount = $GBLObjTypeOUs.Count
-                Write-Verbose "$($LPP3)`t`tOU Count:`t$TDGPipeCount"
-                $GBLTDGs = $GBLObjTypeOUs | New-ADDTaskGroup -ChainRun -PipelineCount $TDGPipeCount
-                Write-Verbose "$($LPP3)`t`tGBL TDG Count:`t$($GBLTDGs)"
-            }else{
-                $ObjectOUResults = $false
-
-                Write-Verbose "$($LPP3)`t`tTask Outcome:`tFailed"
-                Write-Warning "$($LPP3)`t`tFailed to create Object Type containers - Some additional processes may fail"
-            } # GBLObjTypeOUs
-
-            if($GBLTDGs){
-                Write-Verbose "$($LPP3)`t`tTask Outcome:`tSuccess"
-                Write-Verbose ""
-                $TDGResults = $true
-
-                if(!($MTRun)){
-                    Write-Progress -Id 15 -Activity "Deploy $TierID Core Components" -CurrentOperation "Setting Shared Services TDG ACLs" -ParentId 10
-                }
-                Write-Verbose "$($LPP2)`t`tAccess Control Entries"
-                $TDGPipeCount = $GBLTDGs.Count
-                $ACLResults = $GBLTDGs | Grant-ADDTDGRights -ChainRun -PipelineCount $TDGPipeCount
-
-                if($ACLResults){
-                    Write-Verbose "$($LPP3)`t`tTask Outcome:`tSuccess"
-                    Write-Verbose ""
-                    $ACLResults = $true
-                }else {
-                    Write-Verbose "$($LPP3)`t`tTask Outcome:`tFailed"
-                    Write-Warning "$($LPP3)`t`tFailed to create Object Type containers - Some additional processes may fail"
-                    $ACLResults = $false
-                } # GBLAcls
-            }else {
-                Write-Verbose "$($LPP3)`t`tTask Outcome:`tFailed"
-                Write-Warning "$($LPP3)`t`tFailed to Global Task Delegation Groups - Some additional processes may fail"
-            } # GBLTDGs
-            #endregion SharedSvcsObjOU-TDG-ACLs
-
-
-            if($GBLObjTypeOUs){
-                if(!($MTRun)){
-                    Write-Progress -Id 15 -Activity "Deploy $TierID Core Components" -CurrentOperation "Creating Tier Control Groups" -ParentId 10
-                }
                 Write-Verbose "$($LPP2)`t`tCreating Tier Control Groups"
                 $CGPre = Join-String -Strings $TierID,$FocusID -Separator "_"
                 Write-Debug "$($LPP3)`t`tCG Name Prefix Initial:`t$CGPre"
                 for($i = 1; $i -lt ($MaxLevel + 1); $i++){
                     $CGPre += "_$OUGlobal"
                 }
-
+        
                 $CGMid = Join-String -Strings "SOU","AP","TC" -Separator "_"
                 Write-Debug "$($LPP3)`t`tCG Name Mid:`t$CGMid"
-
-                $CoreTDGResult = $false
-
+        
                 Write-Verbose "$($LPP3)`t`tCG Name Prefix:`t$CGPre"
-
-                foreach($GlobalOU in $StageGlobalOU){
-                    $CGDestPre = "LDAP://OU=Other,OU=Groups"
-
-                    # Adjust value based on WhatIf - DirectoryEntry object won't exist in WhatIf
-                    if($WhatIfPreference){
-                        $GlobalDN = $GlobalOU.DistinguishedName
-                    }else {
-                        $GlobalDN = $GlobalOU.DistinguishedName
-                    }
-
-                    [string]$CGDestFull = Join-String -Strings $CGDestPre,$GlobalDN -Separator ","
-                    Write-Verbose "$($LPP3)`t`tCG Destination DN:`t$CGDestFull"
-                    Write-Verbose ""
-
-                    Write-Verbose "$($LPP3)`t`tProcess Core Group Names"
-                    foreach($CoreGroup in $CoreGroups){
-                        $CGSuffix = $CoreGroup.OU_name
-                        Write-Debug "$($LPP4)`t`tCGSuffix:`t$CGSuffix"
-                        [string]$CGFullName = Join-String -Strings $CGPre,$CGMid,$CGSuffix -Separator "-"
-
-                        if($pscmdlet.ShouldProcess($CGName,"Create in $CGDestFull")){
-                            Write-Verbose "$($LPP4)`t`tName:`t$CGFullName"
-                            $CoreTDGObj = New-ADDADObject -ObjName $CGFullName -ObjParentDN $CGDestFull -ObjType "group"
-
-                            if($CoreTDGObj){
-                                switch ($CoreTDGObj.State) {
-                                    {$_ -like "New"} {
-                                        Write-Verbose "$($LPP4)`t`tTask Outcome:`tSuccess"
-                                        Write-Verbose ""
-                                        $TDGsCreated ++
-                                        $CoreTDGResult = $true
-                                    }
-
-                                    {$_ -like "Existing"} {
-                                        Write-Verbose "$($LPP4)`t`tTask Outcome:`tAlready Exists"
-                                        Write-Verbose ""
-                                        $CoreTDGResult = $true
-                                    }
-
-                                    Default {
-                                        Write-Verbose "$($LPP4)`t`tOutcome:`tFailed"
-                                        Write-Verbose "$($LPP4)`t`tFail Reason:`t$($CoreTDGObj.State)"
-                                        $CoreTDGResult = $false
-                                    }
+        
+                $GlobalDN = $GlobalOU.DistinguishedName
+                Write-Verbose "GloablDN: `t $($GlobalOU.DistinguishedName)"
+                Write-Verbose "$($LPP3)`t`tCG Destination DN:`t$GlobalDN"
+                Write-Verbose ""          
+                
+                Write-Verbose "$($LPP3)`t`tProcess Core Group Names"
+                foreach($CoreGroup in $CoreGroups){
+                    $CGSuffix = $CoreGroup.OU_name
+                    Write-Debug "$($LPP4)`t`tCGSuffix:`t$CGSuffix"
+                    [string]$CGFullName = Join-String -Strings $CGPre,$CGMid,$CGSuffix -Separator "-"
+        
+                    if($pscmdlet.ShouldProcess($CGName,"Create in $GlobalDN")){
+                        Write-Verbose "$($LPP4)`t`tName:`t$CGFullName"
+                        $CoreTDGObj = New-ADDADObject -ObjName $CGFullName -ObjParentDN $GlobalDN -ObjType "group"
+        
+                        if($CoreTDGObj){
+                            switch ($CoreTDGObj.State) {
+                                {$_ -like "New"} {
+                                    Write-Verbose "$($LPP4)`t`tTask Outcome:`tSuccess"
+                                    Write-Verbose ""
+                                    $TDGsCreated ++
                                 }
-                            }else {
-                                Write-Verbose "$($LPP4)`t`tOutcome:`tFailed"
-                                Write-Verbose "$($LPP4)`t`tFail Reason:`tUnknown - No Lvl 3 Object Returned"
-                                $CoreTDGResult = $false
-                                $FailedCount ++
+        
+                                {$_ -like "Existing"} {
+                                    Write-Verbose "$($LPP4)`t`tTask Outcome:`tAlready Exists"
+                                    Write-Verbose ""
+                                }
+        
+                                Default {
+                                    Write-Verbose "$($LPP4)`t`tOutcome:`tFailed"
+                                    Write-Verbose "$($LPP4)`t`tFail Reason:`t$($CoreTDGObj.State)"
+                                }
                             }
-
                         }else {
-                            Write-Verbose "$($LPP3)`t`t+++ WhatIf: Create TDG - $CGFullName +++"
-                        } #EndIf - WhatIf Create Core TDG
+                            Write-Verbose "$($LPP4)`t`tOutcome:`tFailed"
+                            Write-Verbose "$($LPP4)`t`tFail Reason:`tUnknown - No Lvl 3 Object Returned"
+                            $FailedCount ++
+                        }
+        
+                    }else {
+                        Write-Verbose "$($LPP3)`t`t+++ WhatIf: Create TDG - $CGFullName +++"
+                    } #EndIf - WhatIf Create Core TDG
                         # Logging spacer
                         Write-Verbose ""
-
-                    } #EndForeach - CoreGroups
-                    # Logging spacer
-                    Write-Verbose ""
-
-                } #EndForeach - StageGlobalOU
-
-
-            }else {
-                Write-Verbose "$($LPP2)`t`tNo Global Object Type Containers - Skipping creation of Tier Control Groups"
-            } #EndIf - Tier Control Groups
-
-        }else {
-            Write-Verbose "$($LPP2)`t`tAdmin Focus not detected - Skipping creation of Shared Svcs Elements for this path"
-        } #EndIf - FocusID matches 'Admin' focus
+        
+                } #EndForeach - CoreGroups
+                # Logging spacer
+                Write-Verbose ""
+            }
+        }
 
         # Logging spacer
         Write-Verbose ""
@@ -453,15 +176,14 @@ function Install-ADDCoreComponents {
         Write-Verbose ""
         Write-Verbose "$($LPP1)`t`t****************** End of loop ($loopCount) ******************"
         Write-Verbose ""
-    }
+    } #End Process block
 
     end {
-        #TODO: Add support for skip
         Write-Verbose "$($LP)`t`tWriting Root ACLs to domain"
         if(!($MTRun)){
             Write-Progress -Id 15 -Activity "Deploy Core Components" -CurrentOperation "Setting Root and RecycleBin ACLs" -ParentId 10
         }
-        if($WhatIfPreference){
+        if($pscmdlet.ShouldProcess("Set root ACLs","$DomDN")){
             $RootDomDE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DomDN")
             $PartitionDE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=Partitions,CN=Configuration,$DomDN")
             $OptionalFeatures = $PartitionDE."msDS-EnabledFeature"
@@ -470,7 +192,7 @@ function Install-ADDCoreComponents {
         $InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]'All'
         $AdminGroupObj = New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=Administrators,CN=Builtin,$DomDN")
         $DelegateSID = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList $AdminGroupObj.objectSid.Value, 0
-        $AdminGrpACEDef = $DelegateSID,'GenericAll','Allow',$InheritanceType,$allGuid
+        $AdminGrpACEDef = $DelegateSID,'GenericAll','Allow',$allGuid,$InheritanceType
 
         try {
             $aceObj = New-Object -TypeName System.DirectoryServices.ActiveDirectoryAccessRule($AdminGrpACEDef)
@@ -486,11 +208,9 @@ function Install-ADDCoreComponents {
                 try {
                     $RootDomDE.psbase.ObjectSecurity.AddAccessRule($aceObj)
                     $RootDomDE.psbase.CommitChanges()
-                    $GCARootACLs = $true
                     Write-Verbose "$($LPB2)`t`tOutcome:`tSuccess"
                 }
                 catch {
-                    $GCARootACLs = $false
                     Write-Verbose "$($LPB2)`t`tOutcome:`tFail"
                 }
             }else {
@@ -498,6 +218,7 @@ function Install-ADDCoreComponents {
             }
 
             if($pscmdlet.ShouldProcess("Recycle Bin","Set RB ACE")){
+                #TODO: Check options for enable optional feature
                 if($OptionalFeatures -like "*Recycle Bin Feature*"){
                     Write-Verbose "$($LPB1)`t`tRecycle Bin Status:`tEnabled"
                     $DelObjDE = New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=Recycle Bin Feature,CN=Optional Features,CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,$DomDN")
@@ -505,11 +226,9 @@ function Install-ADDCoreComponents {
                     try {
                         $DelObjDE.psbase.ObjectSecurity.AddAccessRule($aceObj)
                         $DelObjDE.psbase.CommitChanges()
-                        $GCARecycleACLs = $true
                         Write-Verbose "$($LPB2)`t`tOutcome:`tSuccess"
                     }
                     catch {
-                        $GCARecycleACLs = $false
                         Write-Verbose "$($LPB2)`t`tOutcome:`tFail"
                     }
                 }else {
@@ -517,13 +236,59 @@ function Install-ADDCoreComponents {
                 }
             }else {
                 Write-Verbose "$($LPB1)`t`t+++ WhatIf Detected - Would write FullControl ACE for BUILTIN\Administrators to domain Recycle Bin (if enabled) +++"
-                $GCARecycleACLs = $true
+            } #End If/Esle ShouldProcess - Recycle Bin
+            
+            #Update AdminSDHolder default SACLs
+            $SDHolder = New-Object System.DirectoryServices.DirectoryEntry("LDAP://CN=AdminSDHolder,CN=System,$DomDN")
+            foreach($sacl in $EveryoneSACLs){
+                $SDHolder.psbase.ObjectSecurity.AddAuditRule($sacl)
             }
+
+            #TODO: Address users/comps redirection
+            if($NoRedir){
+                Write-Verbose "$($LPB1)`t`tRedirection of Default Users/Computers Skipped"
+            } else {
+                $RedirPath = "OU=Provisioning,OU=$($FocusHash['Stage']),OU=Tier-2,$DomDN"
+                $WellKnownObjects = Get-ADObject -Identity $DomDN -Properties wellKnownObjects | Select-Object -ExpandProperty wellKnownObjects
+
+                $CompWKO = $WellKnownObjects | Where-Object {$_ -like "*CN=Computers,*"}
+                Write-Verbose "$($LPB1)`t`tCurrent Computer OU:`t$CompWKO"
+                
+                $UserWKO = $WellKnownObjects | Where-Object {$_ -like "*CN=Computers,*"}
+                Write-Verbose "$($LPB1)`t`tCurrent User OU:`t$UserWKO"
+
+                $NewCompWKO = $CompWKO -replace ($CompWKO.Split(':')[-1]),$RedirPath
+                Write-Verbose "$($LPB1)`t`tNew Computer OU:`t$NewCompWKO"
+
+                $NewUserWKO = $UserWKO -replace ($UserWKO.split(':')[-1]),$RedirPath
+                Write-Verbose "$($LPB1)`t`tNew User OU:`t$NewUserWKO"
+
+                Write-Verbose "$($LPB2)`t`tAttempting to update default computers location"
+                try {
+                    Set-ADObject -Identity $DomDN -Add @{wellKnownObjects = $NewCompWKO} -Remove @{wellKnownObjects = $CompWKO}
+                    Write-Verbose "$($LPB2)`t`tUpdate Default Computers:`tSuccess"
+                }
+                catch {
+                    Write-Verbose "$($LPB2)`t`tUpdate Default Computers:`tFailed"
+                    Write-Warning "Updating the default computers OU failed - Run 'redircmp.exe' manually"
+                }
+
+                Write-Verbose "$($LPB2)`t`tAttempting to update default users location"
+                try {
+                    Set-ADObject -Identity $DomDN -Add @{wellKnownObjects = $NewUserWKO} -Remove @{wellKnownObjects = $UserWKO}
+                    Write-Verbose "$($LPB2)`t`tUpdate Default Users:`tSuccess"
+                }
+                catch {
+                    Write-Verbose "$($LPB2)`t`tUpdate Default Users:`tFailed"
+                    Write-Warning "Updating the default users OU failed - Run 'redirusr.exe' manually"
+                }
+            }
+            
         }else{
             Write-Debug "$($LPB1)`t`tProcess Administrators ACE: Failure - No ACE object"
         }
 
-		$DeployResults.Add("DeployStatus",$true)
+        $DeployResults.Add("DeployStatus",$true)
 
         Write-Verbose ""
         Write-Verbose "$($LP)`t`tWrapping Up"
@@ -536,13 +301,11 @@ function Install-ADDCoreComponents {
 
         if(!($MTRun)){
             Write-Progress -Id 15 -Activity "Creating OUs" -CurrentOperation "Finished" -Completed -ParentId 10
-        }
+        } #End If MTRun
 
         Write-Verbose "$($LP)`t`t------------------- $($FunctionName): End -------------------"
         Write-Verbose ""
         Write-Verbose ""
 
-        return $DeployResults
-
-    }
+    } #End End block
 }

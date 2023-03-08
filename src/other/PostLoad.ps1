@@ -55,21 +55,6 @@ $null = Register-EngineEvent -SourceIdentifier ( [System.Management.Automation.P
 # Use this in your scripts to check if the function is being called from your module or independantly.
 $ThisModuleLoaded = $true
 
-# Supplemental load elements
-$FunctionName = $pscmdlet.MyInvocation.MyCommand.Name
-
-#region LoadNon-PluginModules
-#TODO: Reorg function - Group all by type and reorder: import data, create ref hashes, create ref variables, process initialization (validate order vs dependencies)
-#TODO: Adjust logging - Change all current items to Debug, Create pass/fail var for each section (above), Output mod load summary using section vars with Verbose
-#TODO: P1 - add import progress feedback
-Write-Debug -Message "Processing GroupPolicy module dependency..."
-$GPModuleLoad = Get-ADDModuleDependency -Name GroupPolicy
-if(-not($GPModuleLoad.ImportResult)){
-    Write-Debug "GroupPolicy module dependency issue found - throwing fatal error which should abort import"
-    Throw "Dependent Module Load Error`nModule: GroupPolicy`nStatus: $($ADModuleLoad.ModuleStatus)`nImport Result: $($ADModuleLoad.ImportResult)`nImport Message: $($ADModuleLoad.ImportMessage)"
-}
-#endregion LoadNon-PluginModules
-
 #region DataImport:CoreItems
 Write-Verbose "Initialize: Import Rundata"
 $Rundata = Import-ADDModuleData -DataSet "Rundata"
@@ -90,10 +75,6 @@ if($Rundata){
         $NotFirstRun = $true
     }else{
         $NotFirstRun = $false
-        #TODO: Add code to run initial module setup
-        #?: Should initial setup just be a cmdlet, or should it be a plugin?
-
-        #TODO: Review all functions to ensure Rundata values are being effectively used
     }
 
     New-Variable -Name Initialized -Value $NotFirstRun -Scope Script -Visibility Private
@@ -104,10 +85,11 @@ if($Rundata){
 }
 
 Write-Verbose "Initialize: Import core OU data"
-$CoreData = Import-ADDModuleData -DataSet OUCore
-if($CoreData){
+# Contains all items from the OU_Core table with an enabled state
+$OUCoreData = Import-ADDModuleData -DataSet OUCore
+if($OUCoreData){
     Write-Verbose "`t`tImport Core data: Success"
-    New-Variable -Name CoreOUs -Value $CoreData -Scope Script -Visibility Private
+    New-Variable -Name CoreData -Value $OUCoreData -Scope Script -Visibility Private
 }else{
     Write-Verbose "`t`tImport Core Data: Failed"
     Write-Error "Unable to import Core Data from DB - Quitting load sequence" -ErrorAction Stop
@@ -117,10 +99,10 @@ if($CoreData){
 # Abbreviated Tier Values - Used for GPO and Group Names
 ## When using defaults, values are; T0, T1, T2
 $TierHashTmp = @{}
-$CoreOUs | Where-Object{$_.OU_type -like "Tier"} | ForEach-Object{$TierHashTmp.($_.OU_name) = $_.OU_focus}
+$CoreData | Where-Object{$_.OU_type -like "Tier"} | ForEach-Object{$TierHashTmp.($_.OU_name) = $_.OU_focus}
 New-Variable -Name TierHash -Value $TierHashTmp -Scope Script -Visibility Private
 New-Variable -Name TierRegEx -Value $($TierHash.Values -join "|") -Scope Script -Visibility Private
-$TierDN = $TierHash.Values | ForEach-Object{"OU=$_"}
+$TierDN = $TierHash.Values | ForEach-Object{"CN=$_"}
 New-Variable -Name TierDNRegEx -Value $($TierDN -join "|") -Scope Script -Visibility Private
 Write-Verbose "`t`tTierHash Values"
 Write-Debug "`t`t`t`t$($TierHash | Out-String)"
@@ -129,7 +111,7 @@ Write-Verbose ""
 # Full Tier Values - Used for OU Names
 ## When using defaults, values are; Tier-0, Tier-1, Tier-2
 $CETierHashTmp=@{}
-$CoreOUs | Where-Object{$_.OU_type -like "Tier"} | ForEach-Object{$CETierHashTmp.($_.OU_focus) = $_.OU_name}
+$CoreData | Where-Object{$_.OU_type -like "Tier"} | ForEach-Object{$CETierHashTmp.($_.OU_focus) = $_.OU_name}
 New-Variable -Name CETierHash -Value $CETierHashTmp -Scope Script -Visibility Private
 New-Variable -Name CETierRegEx -Value $($CETierHash.Values -join "|") -Scope Script -Visibility Private
 $CETierDN = $CETierHash.Values | ForEach-Object{"OU=$_"}
@@ -139,7 +121,7 @@ Write-Verbose "`t`t`t`t$($CETierHash | Out-String)"
 Write-Verbose ""
 
 $FocusHashTmp = @{}
-$CoreOUs | Where-Object{$_.OU_type -like "Focus"} | ForEach-Object{$FocusHashTmp.($_.OU_focus) = $_.OU_name}
+$CoreData | Where-Object{$_.OU_type -like "Focus"} | ForEach-Object{$FocusHashTmp.($_.OU_focus) = $_.OU_name}
 New-Variable -Name FocusHash -Value $FocusHashTmp -Scope Script -Visibility Private
 New-Variable -Name FocusRegEx -Value $($FocusHash.Values -join '|') -Scope Script -Visibility Private
 $FocusDN = $FocusHash.Values | ForEach-Object{"OU=$_"}
@@ -147,6 +129,22 @@ $FocusDN = $FocusHash.Values | ForEach-Object{"OU=$_"}
 New-Variable -Name FocusDNRegEx -Value $($FocusDN -join "|") -Scope Script -Visibility Private
 Write-Verbose "`t`tFocusHash Values"
 Write-Verbose "`t`t`t`t$($FocusHash | Out-String -Stream)"
+Write-Verbose ""
+
+$CEFocusHashTmp = @{}
+$CoreData | Where-Object{$_.OU_type -like "Focus"} | ForEach-Object{$CEFocusHashTmp.($_.$OU_name) = $_.OU_focus}
+New-Variable -Name CEFocusHash -Value $CEFocusHashTmp -Scope Script -Visibility Private
+New-Variable -Name CEFocusHashRegEx -Value $($CEFocusHash.Values -join "|") -Scope Script -Visibility Private
+Write-Verbose "`t`tCEFocusHash Values"
+Write-Verbose "`t`t`t`t$($CEFocusHash | Out-String -Stream)"
+Write-Verbose ""
+
+
+$AttributeHashTmp = @{}
+$CoreData | Where-Object{$_.OU_type -like "Attribute"} | ForEach-Object{$AttributeHashTmp.($_.OU_focus) = $_.OU_name}
+New-Variable -Name AttributeHash -Value $AttributeHashTmp -Scope Script -Visibility Private
+Write-Verbose "`t`tAttribute Values"
+Write-Verbose "`t`t`t`t$($AttributeHash | Out-String -Stream)"
 Write-Verbose ""
 
 Write-Verbose "Initialize: Import Rights Data"
@@ -162,6 +160,10 @@ if($RightsData){
     Write-Verbose "`t`tImport Rights Data: Failed"
 }
 Write-Verbose ""
+
+$rootDSE = [adsi]"LDAP://RootDSE"
+$schemaNamingContext = $rootDSE.schemaNamingContext
+$configNamingContext = $rootDSE.configurationNamingContext
 
 Write-Verbose "Initialize: Import ClassMap Data"
 $ClassData = Import-ADDModuleData -DataSet ClassMap
@@ -182,29 +184,61 @@ if($attribdata){
     Write-Verbose "`t`tImport Attribute Data: Success"
     $attribmapTmp = @{}
     $attribdata | ForEach-Object {$attribmapTmp[$_.OBJ_Name]=[System.GUID]$_.OBJ_guid}
+
+    $mcsAdmPwdPath = "LDAP://CN=ms-Mcs-AdmPwd,$schemaNamingContext"
+    $mcsAdmPwdExpirePath = "LDAP://CN=ms-Mcs-AdmPwdExpirationTime,$schemaNamingContext"
+    if($([adsi]::Exists($mcsAdmPwdPath))){
+        New-Variable -Name LAPSDeployed -Value $true -Scope Script -Visibility Private
+
+        $mcsAdmPwdItem = [adsi]$mcsAdmPwdPath
+        $mcsAdmPwdGuid = ([guid]$($mcsAdmPwdItem.schemaIDGUID)).Guid
+        $attribmapTmp[$($mcsAdmPwdItem.lDAPDisplayName)]=[System.Guid]$mcsAdmPwdGuid
+
+        $mcsAdmPwdExpireItem = [adsi]$mcsAdmPwdExpirePath
+        $mcsAdmPwdExpireGuid = ([guid]$($mcsAdmPwdExpireItem.schemaIDGUID)).Guid
+        $attribmapTmp[$($mcsAdmPwdExpireItem.lDAPDisplayName)]=[System.Guid]$mcsAdmPwdExpireGuid
+
+        $Self = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-10")
+        New-Variable -Name SelfSID -Value $Self -Scope Script -Visibility Private
+
+        $mcsAdmPwdExpireSelfAclDef = New-Object -TypeName System.DirectoryServices.ActiveDirectoryAccessRule($SelfSID,"ReadProperty, WriteProperty","Allow",$([System.DirectoryServices.ActiveDirectorySecurityInheritance]'Descendents'),$($classmap["computer"]))
+        $mcsAdmPwdPassSelfAclDef = New-Object -TypeName System.DirectoryServices.ActiveDirectoryAccessRule($SelfSID,"WriteProperty","Allow",$([System.DirectoryServices.ActiveDirectorySecurityInheritance]'Descendents'),$($classmap["computer"]))
+
+        New-Variable -Name LAPSSelfAces -Value (New-Object System.Collections.Generic.List[System.DirectoryServices.ActiveDirectoryAccessRule])
+        $LAPSSelfAces.Add($mcsAdmPwdExpireSelfAclDef)
+        $LAPSSelfAces.Add($mcsAdmPwdPassSelfAclDef)
+    }else{
+        New-Variable -Name LAPSDeployed -Value $false -Scope Script -Visibility Private
+    }
+
     New-Variable -Name attribmap -Value $attribmapTmp -Scope Script -Visibility Private
     Write-Debug "`t`tAttribMap Count: $($attribmap.count)"
 }else{
     Write-Verbose "`t`tImport Attribute Data: Failed"
 }
-#TODO: Create priv function to query AD schema, compare to DB, and execute updates for changes or imports for new (i.e. LAPS since GUID is dynamic)
 
 Write-Verbose "Initialize: Import ExRights Data"
 $exrights = Import-ADDModuleData -DataSet AttribMap -QueryFilter controlAccessRight
 if($exrights){
     Write-Verbose "`t`tImport ExRights Data: Success"
     $exrightsmapTmp = @{}
-    $exrights | ForEach-Object {$exrightsmapTmp[$_.OBJ_Name]=[System.GUID]$_.OBJ_guid}
+    $exrights | ForEach-Object {
+        $exRightsPath = "LDAP://CN=$($_.OBJ_Name),CN=Extended-Rights,$configNamingContext"
+        $exRightsItem = [adsi]$exRightsPath
+        $exRightsGuid = ([guid]$($exRightsItem.rightsGuid)).Guid
+        $exrightsmapTmp[$_.OBJ_Name]=$exRightsGuid
+    }
     New-Variable -Name exrightsmap -Value $exrightsmapTmp -Scope Script -Visibility Private
     Write-Debug "`t`tExRightsMap Count - $($exrightsmap.count)"
 }else{
     Write-Verbose "`t`tImport ExRights Data: Failed"
 }
 
+Write-Verbose ""
 
 #endregion CreatePrimaryReferenceHashes
 
-New-Variable -Name OUGlobal -Value $(($CoreOUs | Where-Object{$_.OU_type -like "Shared"}).OU_name) -Scope Script -Visibility Private
+New-Variable -Name OUGlobal -Value $(($CoreData | Where-Object{$_.OU_type -like "Shared"}).OU_name) -Scope Script -Visibility Private
 Write-Verbose "`t`tOUGlobal - $OUGlobal"
 Write-Verbose ""
 
@@ -224,7 +258,7 @@ if($OrgData){
     New-Variable -Name MaxLvlSet -Value $true -Scope Script -Visibility Private
 
     New-Variable -Name OUOrg -Value $OrgData -Scope Script -Visibility Private
-    New-Variable -Name MaxLevel -Value $((($OUOrg | Select-Object OU_orglvl -Unique).OU_orglvl | Measure-Object -Maximum).Maximum) -Scope Script -Visibility Private
+    New-Variable -Name MaxLevel -Value 1 -Scope Script -Visibility Private
 }else{
     New-Variable -Name OrgImported -Value $false -Scope Script -Visibility Private
     New-Variable -Name MaxLvlSet -Value $false -Scope Script -Visibility Private
@@ -319,9 +353,8 @@ $allGuidTmp = New-Object GUID 00000000-0000-0000-0000-000000000000
 New-Variable -Name allGuid -Value $allGuidTmp -Scope Script -Visibility Private
 
 $EveryoneSID = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
-$InheritanceNone = [System.DirectoryServices.ActiveDirectorySecurityInheritance]'None'
-$ProtectedAceDef = $EveryoneSID,"DeleteTree, Delete","Deny",$allGuidTmp
-$ProtectedAceChildDef = $EveryoneSID,"DeleteChild","Deny",$allGuidTmp
+$ProtectedAceDef = $EveryoneSID,"DeleteTree, Delete","Deny"
+$ProtectedAceChildDef = $EveryoneSID,"DeleteChild","Deny"
 New-Variable -Name ProtectedAce -Value $(New-Object System.DirectoryServices.ActiveDirectoryAccessRule($ProtectedAceDef)) -Scope Script -Visibility Private
 New-Variable -Name ProtectedChildAce -Value $(New-Object System.DirectoryServices.ActiveDirectoryAccessRule($ProtectedAceChildDef)) -Scope Script -Visibility Private
 
@@ -334,52 +367,61 @@ $HostDomSuf = $HostDom.Replace('.',',DC=')
 $HostDomDN = "DC=$($HostDomSuf)"
 if($Initialized){
     if($DomName -notlike $HostDom){
-        #TODO: Add prompt to determine if module should be reinitialized, update domain value only, or run cross-domain
-        #TODO: If run cross-domain option is selected, prompt for credentials
-        $DomChoice = Prompt-Options -PromptInfo @("Initialize - Domain Mismatch","The domain this system is joined to does not match the last run. Please specify how to proceed.") -Options "Reset and Re-initialize Module","Cross-Domain Execution","Update and Continue","Quit"
+        $DomChoice = Show-PromptOptions -PromptInfo @("Initialize - Domain Mismatch","The domain this system is joined to does not match the last run. Please specify how to proceed.") -Options "Update and Continue","Quit"
 
         switch ($DomChoice) {
             0 {
-                Write-Verbose "DomChoice: 0 - Reset and Reinitialize Module"
-                Write-Host "Option 0 selected - Reset and Re-initialize module" -ForegroundColor Yellow
-                $ConfirmResetChoice = Prompt-Options -PromptInfo @("Confirm Reset","Please confirm you wish to reset the module. Warning!! This action cannot be undone!") -Options "Yes - Reset Module","No - Cancel Reset" -default 1
-                #TODO: Add code for resetting module preferences
-            }
-            1 {
-                Write-Verbose "DomChoice: 1 - Cross-Domain Execution"
-                $LoadDomain = Read-Host -Prompt "Please specify the fully qualified domain name to connect to (e.g. mydomain.com)"
-                #TODO: Add code to validate entry, as well as to set DomDN to DistinguishedName
-                $LoadCred = Get-Credential -Message "Please specify admin credentials to use when connecting to the target domain ($LoadDomain)"
-            }
-            2 {
-                Write-Verbose "DomChoice: 2 - Update and Continue"
+                Write-Verbose "DomChoice: 1 - Update and Continue"
                 Export-ADDModuleData -DataSet "SetRunData" -QueryValue "$HostDom","DomName"
             }
-            3 {
-                Write-Verbose "DomChoice: 3 - Quit"
+            1 {
+                Write-Verbose "DomChoice: 2 - Quit"
                 Read-Host "Quit was selected - Pressing 'Enter' key will close the shell (Press Ctrl+C to just abort module load)"
                 exit
             }
         }
-
-        New-Variable -Name DomFull -Value $HostDom -Scope Script -Visibility Private
-        New-Variable -Name DomSuf -Value $HostDomSuf -Scope Script -Visibility Private
-        New-Variable -Name DomDN -Value $HostDomDN -Scope Script -Visibility Private
-
-    }else{
-        New-Variable -Name DomFull -Value $HostDom -Scope Script -Visibility Private
-        New-Variable -Name DomSuf -Value $HostDomSuf -Scope Script -Visibility Private
-        New-Variable -Name DomDN -Value $HostDomDN -Scope Script -Visibility Private
     }
-
-    Write-Verbose "`t`tDomFull:`t$DomFull"
-    Write-Verbose "`t`tDomSuf:`t$DomSuf"
-    Write-Verbose "`t`tDomDN:`t$DomDN"
-}else{
-    #TODO: Add code for initialization of module first run
 }
-#TODO: Once code sequence above is complete, update all functions to remove domain and credential parameters
+New-Variable -Name DomFull -Value $HostDom -Scope Script -Visibility Private
+New-Variable -Name DomSuf -Value $HostDomSuf -Scope Script -Visibility Private
+New-Variable -Name DomDN -Value $HostDomDN -Scope Script -Visibility Private
+
 #endregion SetDomainReferences
+
+#region CheckDBScopeOUs
+$AllScopeDNs = @(Get-ADDOrgUnit -Level SL).where({($_.distinguishedname -notlike "OU=Provision,*") -and ($_.distinguishedname -notlike "OU=Deprovision,*")}) | select-object distinguishedname
+
+$PathElements = @()
+
+foreach($Scope in $AllScopeDNs){ 
+	$PItems = (($Scope).split(",") -replace "OU=")
+	$FocusShort = $PItems[1]
+	
+	switch ($PItems[2]){
+		{$_ -like "*-0"} {$TInc = 1}
+		{$_ -like "*-1"} {$TInc = 2}
+		{$_ -like "*-2"} {$TInc = 3}
+	}
+
+	$Obj = [PSCustomObject]@{
+		Name = $PItems[0]
+		Focus = $CEFocusHash["$FocusShort"]
+		Tier = $TInc
+	}
+	
+	$PathElements += $Obj
+}
+
+foreach($PE in $PathElements){
+	$prop = "OU_$($PE.Focus)"
+	if(-not($OUOrg | Where-Object{$_.OU_name -like $PE.Name -and $_.$prop -eq 1})){
+		$Query = "AddOrgEntry$($PE.FocusOU)"
+		
+		Export-ADDModuleData -DataSet $Query -QueryValue $($PE.name),$null,$($PE.Tier)
+	}
+}
+
+#endregion CheckDBScopeOUs
 
 #endregion DataImport:CoreItems
 
@@ -411,6 +453,29 @@ New-Variable -Name LSP4 -Value $("$LSB2`t`t`t") -Scope Script -Visibility Privat
 
 #endregion LogDataIndentLevels
 
+#region ArgumentCompleters
+
+### TDG suffix name argument completer
+$ZTDGNameSB = {
+	param($commandName,$parameterName,$stringMatch)
+	$AllPropGroups | Where-Object{$_.OBJ_name -like "$stringMatch*"} | Sort-Object -Property OBJ_name | Select-Object -ExpandProperty OBJ_name
+}
+
+Register-ArgumentCompleter -CommandName Get-ADDTaskGroup -ParameterName TaskName -ScriptBlock $ZTDGNameSB
+
+$ZRefTypeSB = {
+	param($commandName,$parameterName,$stringMatch)
+    $ObjInfo | Where-Object{$_.OBJ_refid -like "$stringMatch*" -and $_.OBJ_ItemType -like "Primary"} | Sort-Object -Property OBJ_refid | Select-Object -ExpandProperty OBJ_refid
+}
+
+Register-ArgumentCompleter -CommandName Get-ADDTaskGroup -ParameterName ReferenceID -ScriptBlock $ZRefTypeSB
+
+$ZFocusNamesSB = {
+	param($commandName,$parameterName,$stringMatch)
+	$FocusHash.Values | Where-Object {$_ -like "$stringMatch*" -and $_ -notlike "STG"}
+}
+
+Register-ArgumentCompleter -CommandName New-ADDOrgUnit -ParameterName Focus -ScriptBlock $ZFocusNamesSB
 
 # End Supplemental load elements
 # Non-function exported public module members might go here.

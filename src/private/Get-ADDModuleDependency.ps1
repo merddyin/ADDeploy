@@ -1,4 +1,37 @@
 function Get-ADDModuleDependency {
+<#
+    .SYNOPSIS
+        Determines if there any dependencies
+
+    .DESCRIPTION
+        Support function to determine if there are any AD module dependencies. Provides the Module Status as well as a load message to indicate if there 
+        is a module present or not, if there is an issue with the module or if it is missing. 
+
+    .PARAMETER Name
+        Name of the module of interest
+        
+
+    .EXAMPLE
+        Example
+
+    .EXAMPLE
+        Another example of how to use this cmdlet
+
+    .NOTES
+        Help Last Updated: 10/26/2020
+
+        Cmdlet Version: 1.0
+        Cmdlet Status: Release
+
+        Copyright (c) Deloitte. All rights reserved.
+
+        Use of this source code is subject to the terms of use as outlined in the included LICENSE.RTF file, or elsewhere within this file. This
+        source code is provided 'AS IS', with NO WARRANTIES either expressed or implied. Use of this code within your environment is done at your
+        own risk, and Deloitte assumes no liability.
+
+    .LINK
+        https://deloitte.com
+#>
     param (
         [string]$Name
     )

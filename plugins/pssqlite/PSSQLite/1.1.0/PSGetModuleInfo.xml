@@ -1,0 +1,123 @@
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">
+  <Obj RefId="0">
+    <TN RefId="0">
+      <T>System.Management.Automation.PSCustomObject</T>
+      <T>System.Object</T>
+    </TN>
+    <MS>
+      <S N="Name">PSSQLite</S>
+      <S N="Version">1.1.0.0</S>
+      <Obj N="Type" RefId="1">
+        <TN RefId="1">
+          <T>Microsoft.PowerShell.PowerShellGet.UtilClasses.ResourceType</T>
+          <T>System.Enum</T>
+          <T>System.ValueType</T>
+          <T>System.Object</T>
+        </TN>
+        <ToString>Module, Command</ToString>
+        <I32>5</I32>
+      </Obj>
+      <S N="Description">Query SQLite databases</S>
+      <S N="Author">Warren Frame</S>
+      <S N="CompanyName"></S>
+      <S N="Copyright"></S>
+      <DT N="PublishedDate">2020-05-18T13:38:10.07</DT>
+      <DT N="InstalledDate">2022-06-02T07:13:52.5328535-05:00</DT>
+      <B N="IsPrerelease">false</B>
+      <Nil N="UpdatedDate" />
+      <URI N="LicenseUri">https://github.com/RamblingCookieMonster/PSSQLite/blob/master/LICENSE</URI>
+      <URI N="ProjectUri">https://github.com/RamblingCookieMonster/PSSQLite</URI>
+      <Nil N="IconUri" />
+      <Obj N="Tags" RefId="2">
+        <TN RefId="2">
+          <T>System.String[]</T>
+          <T>System.Array</T>
+          <T>System.Object</T>
+        </TN>
+        <LST>
+          <S>sql</S>
+          <S>sqlite</S>
+          <S>Query</S>
+          <S>Database</S>
+          <S>PSModule</S>
+          <S>PSFunction_Invoke-SqliteBulkCopy</S>
+          <S>PSCommand_Invoke-SqliteBulkCopy</S>
+          <S>PSFunction_Invoke-SqliteQuery</S>
+          <S>PSCommand_Invoke-SqliteQuery</S>
+          <S>PSFunction_New-SqliteConnection</S>
+          <S>PSCommand_New-SqliteConnection</S>
+          <S>PSFunction_Out-DataTable</S>
+          <S>PSCommand_Out-DataTable</S>
+          <S>PSFunction_Update-Sqlite</S>
+          <S>PSCommand_Update-Sqlite</S>
+          <S>PSIncludes_Function</S>
+        </LST>
+      </Obj>
+      <Obj N="Includes" RefId="3">
+        <TN RefId="3">
+          <T>System.Collections.Hashtable</T>
+          <T>System.Object</T>
+        </TN>
+        <DCT>
+          <En>
+            <S N="Key">Cmdlet</S>
+            <Nil N="Value" />
+          </En>
+          <En>
+            <S N="Key">DscResource</S>
+            <Obj N="Value" RefId="4">
+              <TNRef RefId="2" />
+              <LST />
+            </Obj>
+          </En>
+          <En>
+            <S N="Key">Function</S>
+            <Nil N="Value" />
+          </En>
+          <En>
+            <S N="Key">RoleCapability</S>
+            <Nil N="Value" />
+          </En>
+          <En>
+            <S N="Key">Workflow</S>
+            <Nil N="Value" />
+          </En>
+          <En>
+            <S N="Key">Command</S>
+            <Obj N="Value" RefId="5">
+              <TNRef RefId="2" />
+              <LST>
+                <S>Invoke-SqliteBulkCopy</S>
+                <S>Invoke-SqliteQuery</S>
+                <S>New-SqliteConnection</S>
+                <S>Out-DataTable</S>
+                <S>Update-Sqlite</S>
+              </LST>
+            </Obj>
+          </En>
+        </DCT>
+      </Obj>
+      <S N="PowerShellGetFormatVersion"></S>
+      <S N="ReleaseNotes"></S>
+      <Obj N="Dependencies" RefId="6">
+        <TN RefId="4">
+          <T>Microsoft.PowerShell.PowerShellGet.UtilClasses.Dependency[]</T>
+          <T>System.Array</T>
+          <T>System.Object</T>
+        </TN>
+        <LST />
+      </Obj>
+      <S N="RepositorySourceLocation"></S>
+      <S N="Repository">PSGallery</S>
+      <S N="PackageManagementProvider"></S>
+      <Obj N="AdditionalMetadata" RefId="7">
+        <TNRef RefId="0" />
+        <MS>
+          <S N="IsPrerelease">False</S>
+          <S N="NormalizedVersion">1.1.0.0</S>
+        </MS>
+      </Obj>
+      <S N="InstalledLocation">C:\Users\merdd\OneDrive\Documents\PowerShell\Modules</S>
+    </MS>
+  </Obj>
+</Objs>

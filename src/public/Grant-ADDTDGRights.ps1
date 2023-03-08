@@ -1,31 +1,42 @@
 function Grant-ADDTDGRights {
 <#
-    .SYNOPSIS
-        Short description
+	.SYNOPSIS
+		Configures ACLs as defined based on the Task Delegation Group naming convention
 
-    .DESCRIPTION
-        Long description
+	.DESCRIPTION
+		This cmdlet accepts a directory entry representing an AD group, or can also string values with one or more group names. The values will
+		be checked against the OU structure and the appropriate ACLs applied, based on the naming convention employed by the model.
 
-    .PARAMETER exampleparam
-        Description of parameter and required elements
+	.PARAMETER TargetGroup
+		Specify one or more groups by distinguished name to process TDGs for
 
-    .EXAMPLE
-        Example of how to use this cmdlet
+	.PARAMETER PipelineCount
+		Used to specity the number of objects being passed in the pipeline, if knownn, to use in showing progress
 
-    .EXAMPLE
-        Another example of how to use this cmdlet
+	.PARAMETER TargetDE
+		Accepts one or more DirectoryEntry objects to process TDGs for
 
-    .INPUTS
-        Inputs to this cmdlet (if any)
+	.PARAMETER MTRun
+		Only used when calling this cmdlet from the Publish-ADDZTADStructure -MultiThread command - modifies the behavior of progress
 
-    .OUTPUTS
-        Output from this cmdlet (if any)
+	.EXAMPLE
+		PS C:\> Get-ADDOrgUnit -OULevel CLASS | New-ADDTaskGroup
 
-    .NOTES
-        Help Last Updated: 08/06/2019
+		The above command retrieves all AD class OUs (Users, Groups, Workstations, etc), and passes it to the New-ADDTaskGroup cmdlet to initiate
+		creation of the associated Task Delegation Groups for each OU. The New-ADTaskGroup cmdlet will return DirectoryEntry objects to the pipeline.
 
-        Cmdlet Version: 0.1
-        Cmdlet Status: (Alpha/Beta/Release-Functional/Release-FeatureComplete)
+	.INPUTS
+		System.String
+		System.DirectoryServices.DirectoryEntry
+
+	.OUTPUTS
+		System.DirectoryServices.DirectoryEntry
+
+	.NOTES
+		Help Last Updated: 010/06/2020
+
+		Cmdlet Version: 1.0
+		Cmdlet Status: Release
 
         Copyright (c) Topher Whitfield All rights reserved.
 
@@ -36,14 +47,11 @@ function Grant-ADDTDGRights {
     .LINK
         https://mer-bach.org
 #>
-    [CmdletBinding(SupportsShouldProcess=$true,DefaultParameterSetName="ChainRun",ConfirmImpact='Medium')]
-    Param (
-        [Parameter(ParameterSetName="ManualRunA",Mandatory=$true,Position=0,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
-        [string[]]
+	[CmdletBinding(SupportsShouldProcess=$true,DefaultParameterSetName="ChainRun",ConfirmImpact='Medium')]
+	Param (
+		[Parameter(ParameterSetName="ManualRunA",Mandatory=$true,Position=0,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
+		[string[]]
 		$TargetGroup,
-
-		[Parameter(ParameterSetName="ManualRunB",Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
-		[string[]]$StartOU,
 
 		[Parameter(ParameterSetName="ManualRun")]
 		[Parameter(ParameterSetName="ChainRun")]
@@ -52,61 +60,69 @@ function Grant-ADDTDGRights {
 		[Parameter(ParameterSetName="ChainRun",Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
 		[System.DirectoryServices.DirectoryEntry]$TargetDE,
 
-        [Parameter(DontShow,ParameterSetName="ChainRun")]
-        [Switch]$MTRun
-    )
+		[Parameter(DontShow,ParameterSetName="ChainRun")]
+		[Switch]$MTRun
+	)
 
-    begin {
+	begin {
 		$FunctionName = $pscmdlet.MyInvocation.MyCommand.Name
 		Write-Verbose "------------------- $($FunctionName): Start -------------------"
 		Write-Verbose ""
+		#TODO: Update help
 
 		if($pscmdlet.ParameterSetName -like "ManualRun"){
-            $ChainRun = $false
-        }else {
-            $ChainRun = $true
-        }
+			$ChainRun = $false
+		}else {
+			$ChainRun = $true
+		}
 
-
+		# Detect if input is coming from pipeline or not, and set values for fast detect later
 		if($pscmdlet.MyInvocation.ExpectingInput -or $ChainRun){
+			Write-Verbose "Pipeline:`tDetected"
+			$Pipe = $true
+
+			# Set ID value to be used in Write-Progress later if required
 			if($MTRun){
-                $ProgParams = @{
-                    Id = 25
-                    ParentId = 20
-                }
+				$ProgParams = @{
+					Id = 30
+				}
+				
+				if($PipelineCount){
+					$ProgParams.Add("ParentId",25)
+				}
 			}else {
-                $ProgParams = @{
-                    Id = 15
-                    ParentId = 10
-                }
-            }
+				$ProgParams = @{
+					Id = 20
+				}
+				
+				if($PipelineCount){
+					$ProgParams.Add("ParentId",15)
+				}
+			}
 
 			if($PipelineCount -gt 0){
 				$TotalItems = $PipelineCount
-            }
 
-			Write-Progress @ProgParams -Activity "Setting ACLs" -CurrentOperation "Initializing..."
+			}
 
+			Write-Verbose "`t`tInitiating Progress Tracking"
+			Write-Progress -Activity "Setting ACLs" -CurrentOperation "Initializing..." @ProgParams
+		}else{
+			Write-Verbose "Pipeline:`tNot Detected"
 		}
+		
+		$ProcessedCount = 0
+		$FailedCount = 0
+		$GCloopCount = 1
+		$loopCount = 1
 
-        $ProcessedCount = 0
-        $FailedCount = 0
-        $ExistingCount = 0
-        $NewCount = 0
-		$TotalAcesCount = 0
-		$FailedAcesCount = 0
-        $GCloopCount = 1
-        $loopCount = 1
-        $subloopCount = 1
+		$loopTimer = [System.Diagnostics.Stopwatch]::new()
+		$loopTimes = @()
 
-        $loopTimer = [System.Diagnostics.Stopwatch]::new()
-        $subloopTimer = [System.Diagnostics.Stopwatch]::new()
-        $loopTimes = @()
+		Write-Verbose ""
+	}
 
-        Write-Verbose ""
-    }
-
-    process {
+	process {
 		Write-Verbose ""
 		Write-Verbose "`t`t****************** Start of loop ($loopCount) ******************"
 		Write-Verbose ""
@@ -114,7 +130,7 @@ function Grant-ADDTDGRights {
 
 		# Enforced .NET garbage collection to ensure memory utilization does not balloon
 		if($GCloopCount -eq 30){
-			Run-MemClean
+			Invoke-MemClean
 			$GCloopCount = 0
 		}
 
@@ -125,52 +141,46 @@ function Grant-ADDTDGRights {
 				$PercentComplete = 0
 			}
 
-			Write-Progress -@ProgParams -Activity "Creating TDGs by OU" -CurrentOperation "Analyzing..." -Status "Processed $ProcessedCount OUs" -PercentComplete $PercentComplete
+			Write-Progress @ProgParams -Activity "Setting ACLs per TDG" -CurrentOperation "Deploying..." -Status "Processed $ProcessedCount" -PercentComplete $PercentComplete
 		}
 
-        #region DetectInputType
+		#region DetectInputType
 		# Start process run by detecting the input object type
-        Write-Verbose "`t`tDetect input type details"
-        Write-Verbose ""
+		Write-Verbose "`t`tDetect input type details"
+		Write-Verbose ""
 		if($Pipe){
 			Write-Verbose "`t`t`tInput Type:`tPipeline"
 			$TargetItem = $_
-		}elseif($TargetOU) {
-			Write-Verbose "`t`t`tInput Type:`tTargetOU (single item)"
-			$TargetItem = $TargetOU
-		}else {
-			Write-Verbose "`t`t`tInput Type:`tStartOU (single item)"
-			$TargetItem = $StartOU
+		}elseif($TargetGroup) {
+			Write-Verbose "`t`t`tInput Type:`tTargetGroup (single item)"
+			$TargetItem = $TargetGroup
 		}
 
 		Write-Verbose ""
-        try {
-            $TargetType = ($TargetItem.GetType()).name
-            Write-Verbose "`t`t`tTarget Value:`t$TargetItem"
-            Write-Verbose "`t`t`tTarget Type:`t$TargetType"
-        }
-        catch {
-            Write-Error "Unable to determine target type from value provided - Quitting" -ErrorAction Stop
-        }
+		Write-Verbose "`t`t`tTarget Value:`t$TargetItem"
+
+		try {
+			$TargetType = ($TargetItem.GetType()).name
+			Write-Verbose "`t`t`tTarget Type:`t$TargetType"
+		}
+		catch {
+			Write-Error "Unable to determine target type from value provided - Quitting" -ErrorAction Stop
+		}
 
 		# Use the input object type to determine how to create a reference DirectoryEntry object for the input OU path
 		switch ($TargetType){
 			"DirectoryEntry" {
-                $DEPath = $TargetItem.Path
-			}
-
-			"ADOrganizationalUnit" {
-				$DEPath = "LDAP://$($TargetItem.DistinguishedName)"
+				$DEPath = $TargetItem.Path
 			}
 
 			Default {
 				if($TargetItem -like "LDAP://*"){
-                    $DEPath = $TargetItem
+					$DEPath = $TargetItem
 				}else{
 					if($TargetItem -match $OUdnRegEx){
 						$DEPath = "LDAP://$TargetItem"
 					}else{
-						Write-Error "The specified object ($TargetItem) is not in distinguishedName format - Skipping" -ErrorAction Continue
+						Write-Warning "The specified object ($TargetItem) is not in distinguishedName format - Skipping"
 						$FailedCount ++
 						break
 					}
@@ -178,26 +188,26 @@ function Grant-ADDTDGRights {
 			}
 		}
 
-        Write-Verbose "`t`t`tDEPath:`t$DEPath"
+		Write-Verbose "`t`t`tDEPath:`t$DEPath"
 
-        if([adsi]::Exists($DEPath)) {
-            $TargetDEObj = New-Object System.DirectoryServices.DirectoryEntry($DEPath)
-            Write-Verbose "`t`tOrg OU Target Path:`t$($TargetDEObj.Path)"
-        }else {
-            Write-Error "The specified OU ($TargetItem) wasn't found in the domain - Skipping" -ErrorAction Continue
-            $FailedCount ++
-            break
-        }
-        #endregion DetectInputType
+		if([adsi]::Exists($DEPath)) {
+			$TargetDEObj = New-Object System.DirectoryServices.DirectoryEntry($DEPath)
+			Write-Verbose "`t`tOrg OU Target Path:`t$($TargetDEObj.Path)"
+		}else {
+			Write-Warning "The specified OU ($TargetItem) wasn't found in the domain - Skipping"
+			$FailedCount ++
+			break
+		}
+		#endregion DetectInputType
 
 		if($pscmdlet.ParameterSetName -like "ManualRun*"){
-            if(!($TargetGroup)){
-                Write-Error "`t`tNo value provided for TDG to process - Skipping" -ErrorAction Continue
-                $FailedCount ++
-                break
-            }elseif ($TargetGroup -like "LDAP://*") {
-                $TargetDEObj = New-Object System.DirectoryServices.DirectoryEntry($TargetGroup)
-            }else {
+			if(!($TargetGroup)){
+				Write-Warning "`t`tNo value provided for TDG to process - Skipping"
+				$FailedCount ++
+				break
+			}elseif ($TargetGroup -like "LDAP://*") {
+				$TargetDEObj = New-Object System.DirectoryServices.DirectoryEntry($TargetGroup)
+			}else {
 				$GrpADSISearcher = New-Object System.DirectoryServices.DirectorySearcher
 				$GrpADSISearcher.SearchRoot
 				$GrpADSISearcher.Filter = "(&(objectCategory=group)(name=$TargetGroup))"
@@ -205,8 +215,8 @@ function Grant-ADDTDGRights {
 				foreach($SearchResult in $GrpSearchResults){
 					$TargetDEObj = New-Object System.DirectoryServices.DirectoryEntry -ArgumentList @($($SearchResult.path))
 				}
-            }
-        }
+			}
+		}
 
 		$gName = $TargetDEObj.psbase.Properties["name"]
 
@@ -220,20 +230,20 @@ function Grant-ADDTDGRights {
 			break
 		}
 
-		Write-Debug "`t`tConvertTo-Element - Process SourceValue"
+		Write-Verbose "`t`tConvertTo-Element - Process SourceValue"
 		#Break input into separate elements for processing
 		$SourceItem = ConvertTo-Elements -SourceValue $SourceValue
 		if(!($SourceItem)){
 			Write-Error "Failed to obtain results from ConvertTo-Elements - skipping"
 		}else{
-			Write-Debug "`t`tConvertTo-Element: SourceItem"
-			Write-Debug "`t`t`t`t$($SourceItem | Out-String)"
+			Write-Verbose "`t`tConvertTo-Element: SourceItem"
+			Write-Verbose "`t`t`t`t$($SourceItem | Out-String)"
 		}
 
 		if($SourceItem.TargetType -like "DistinguishedName"){
 
 		}else{
-			Write-Debug "`t`tGet-ADGroup"
+			Write-Verbose "`t`tGet-ADGroup"
 			[byte[]]$gSID = $TargetDEObj.objectSid.value
 			$DelegateSID = New-Object System.Security.Principal.SecurityIdentifier -ArgumentList $gSID, 0
 			Write-Verbose "`t`tADGroup Name:`t$gName"
@@ -241,24 +251,24 @@ function Grant-ADDTDGRights {
 
 			#region SetInitialReferencePoints
 			$Tier = $SourceItem.TierID
-			Write-Debug "`t`tReference Points: Tier - $Tier"
+			Write-Verbose "`t`tReference Points: Tier - $Tier"
 			$FocusID = $SourceItem.FocusID
-			Write-Debug "`t`tReference Points: FocusID - $FocusID"
+			Write-Verbose "`t`tReference Points: FocusID - $FocusID"
 			$TypeOU = $SourceItem.ObjectType
 			Write-Verbose "`t`tReference Points: TypeOU - $TypeOU"
 			$PermElements = ($SourceValue).Split("-")[1]
-			Write-Debug "`t`tReference Points: PermElements - $PermElements"
+			Write-Verbose "`t`tReference Points: PermElements - $PermElements"
 			$Descriptor = $SourceItem.Descriptor
-			Write-Debug "`t`tReference Points: Descriptor - $Descriptor"
+			Write-Verbose "`t`tReference Points: Descriptor - $Descriptor"
 			$ObjRefID = ($PermElements).Split("_")[0]
-			Write-Debug "`t`tReference Points: ObjrefID - $ObjRefID"
+			Write-Verbose "`t`tReference Points: ObjrefID - $ObjRefID"
 			$ObjScope = ($PermElements).Split("_")[1]
-			Write-Debug "`t`tReference Points: ObjScope - $ObjScope"
+			Write-Verbose "`t`tReference Points: ObjScope - $ObjScope"
 			$ObjRights = ($PermElements).Split("_")[2]
-			Write-Debug "`t`tReference Points: ObjRights - $ObjRights"
+			Write-Verbose "`t`tReference Points: ObjRights - $ObjRights"
 			$MaxLvl = $SourceItem.MaxLvl
 			$OrgLvl1 = $SourceItem.OrgL1
-			Write-Debug "`t`tReference Points: OrgLvl1 - $OrgLvl1"
+			Write-Verbose "`t`tReference Points: OrgLvl1 - $OrgLvl1"
 			if($SourceItem.OrgL2){ $OrgLvl2 = $SourceItem.OrgL2 }
 			if($SourceItem.OrgL3){ $OrgLvl3 = $SourceItem.OrgL3 }
 			#endregion SetInitialReferencePoints
@@ -267,7 +277,7 @@ function Grant-ADDTDGRights {
 			$ADSISearcher = New-Object System.DirectoryServices.DirectorySearcher
 
 			$TPRoot = Join-String $FocusID,$Tier -Separator ",OU="
-			Write-Debug "`t`tReference Points: TPRoot - $TPRoot"
+			Write-Verbose "`t`tReference Points: TPRoot - $TPRoot"
 
 			if($FocusID -like $FocusHash["Stage"]){
 				$SPath = $TPRoot
@@ -434,7 +444,7 @@ function Grant-ADDTDGRights {
 			}
 
 			$ObjData = $ObjInfo | Where-Object {$_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_refid -like $ObjRefID}
-			Write-Debug "`t`tObjData - `n`t`t`t`t$($ObjData | Format-Table | Out-String -Stream)"
+			Write-Verbose "`t`tObjData - `n`t`t`t`t$($ObjData | Format-Table | Out-String -Stream)"
 
 			if(!($ObjData)){
 				Write-Verbose "`t`tObjType: ($ObjRefID)`tIssue: Object type not found`t Action: Skip"
@@ -455,28 +465,28 @@ function Grant-ADDTDGRights {
 			}else{
 				$accType = "Allow"
 			}
-			Write-Debug "`t`taccType - $accType"
+			Write-Verbose "`t`taccType - $accType"
 
-			Write-Debug "`t`tProcess ObjScope to identify PGProperties"
+			Write-Verbose "`t`tProcess ObjScope to identify PGProperties"
 			$PGProperties = New-Object System.Collections.Generic.List[psobject]
 
 			switch ($ObjScope){
 				"PG" {
-					Write-Debug "`t`t`t`tProcess ObjScope: PG"
-					Write-Debug "`t`t`t`tProcess ObjScope: PG: Retrieve Property Group Definition"
+					Write-Verbose "`t`t`t`tProcess ObjScope: PG"
+					Write-Verbose "`t`t`t`tProcess ObjScope: PG: Retrieve Property Group Definition"
 					Write-Verbose "`t`t`t`tImport PGInfo"
 					$PGInfo = $PropGroupMap | Where-Object{$_.OBJ_pgrpname -like $Descriptor} | Select-Object OBJ_propertyname
 					$PGInfoCount = $PGInfo.count
 					if($PGInfo){
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Returned PGs (Count) - $($PGInfoCount)"
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Returned PGs (Count) - $($PGInfoCount)"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values"
 						$PGProcessedCount = 0
 						$PGFailedCount = 0
 						$PGInfo | ForEach-Object{
 							$pname = $_.OBJ_propertyname
-							Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname - $pname"
+							Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname - $pname"
 							if($attribmap["$($pname)"]){
-								Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname in attribmap"
+								Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname in attribmap"
 								$PGPObj = [PSCustomObject]@{
 									PropName   = $pname
 									PropType   = "Attribute"
@@ -485,7 +495,7 @@ function Grant-ADDTDGRights {
 									ACLScope   = $classmap["$($ADClass)"]
 								}
 							}elseif($exrightsmap["$($pname)"]){
-								Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname in exrightsmap"
+								Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname in exrightsmap"
 								$PGPObj = [PSCustomObject]@{
 									PropName   = $pname
 									PropType   = "ExtendedRight"
@@ -494,19 +504,33 @@ function Grant-ADDTDGRights {
 									ACLScope   = $classmap["$($ADClass)"]
 								}
 							}else{
-								Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname match NOT found!!"
+								Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: pname match NOT found!!"
 							}
 
 							if($PGPObj){
-								Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: PGPObj - `n`t`t$($PGPObj | Out-String -Stream)"
+								Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: PGPObj - `n`t`t$($PGPObj | Out-String -Stream)"
 								if($pname -notin $($PGProperties.PropName)){
 									$PGProperties.Add($PGPObj)
 									$PGProcessedCount ++
+
+									if($pname -like "ms-Mcs-AdmPwd"){
+										Write-Verbose "`t`t`t`t`t`tMcs-AdmPwd detected: Adding ExtendedRight"
+										$PGPObj = [PSCustomObject]@{
+											PropName   = $pname
+											PropType   = "ExtendedRight"
+											ACLTarget  = $attribmap["$($pname)"]
+											ADRights   = "ExtendedRight"
+											ACLScope   = $classmap["$($ADClass)"]
+										}
+
+										$PGProperties.Add($PGPObj)
+										$PGProcessedCount ++
+									}
 								}
-								Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: Success ($pname): $PGProcessedCount of $PGInfoCount"
+								Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: Success ($pname): $PGProcessedCount of $PGInfoCount"
 							}else{
 								$PGFailedCount ++
-								Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: Failure ($pname): $PGFailedCount of $PGInfoCount"
+								Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: Failure ($pname): $PGFailedCount of $PGInfoCount"
 							}
 						}
 					}else{
@@ -515,13 +539,13 @@ function Grant-ADDTDGRights {
 					}
 				}
 				"PR" {
-					Write-Debug "`t`t`t`tProcess ObjScope: PR"
-					Write-Debug "`t`t`t`t`t`tDescriptor`tObjRights`tADClass"
-					Write-Debug "`t`t`t`t`t`t$Descriptor`t$ObjRights`t$ADClass"
+					Write-Verbose "`t`t`t`tProcess ObjScope: PR"
+					Write-Verbose "`t`t`t`t`t`tDescriptor`tObjRights`tADClass"
+					Write-Verbose "`t`t`t`t`t`t$Descriptor`t$ObjRights`t$ADClass"
 					$pname = $Descriptor
 
 					if($attribmap[$Descriptor]){
-						Write-Debug "`t`t`t`tProcess ObjScope: PR: Process PR Value: Descriptor in attribmap"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PR: Process PR Value: Descriptor in attribmap"
 
 						$PGPObj = [PSCustomObject]@{
 							PropName   = $pname
@@ -531,7 +555,7 @@ function Grant-ADDTDGRights {
 							ACLScope   = $classmap["$($ADClass)"]
 						}
 					}elseif($exrightsmap["$($Descriptor)"]){
-						Write-Debug "`t`t`t`tProcess ObjScope: PR: Process PR Value: Descriptor in exrightsmap"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PR: Process PR Value: Descriptor in exrightsmap"
 						$PGPObj = [PSCustomObject]@{
 							PropName   = $pname
 							PropType   = "ExtendedRight"
@@ -541,29 +565,29 @@ function Grant-ADDTDGRights {
 						}
 					}else{
 						Write-Verbose "`t`t`t`tProcess ObjScope: PR: Process PR Value: Descriptor match NOT found!!"
-						Write-Debug "`t`t`t`tProcess ObjScope: PR: Process PR Value: Descriptor match NOT found!!"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PR: Process PR Value: Descriptor match NOT found!!"
 					}
 
 					if($PGPObj){
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: PGPObj - `n`t`t$($PGPObj | Out-String -Stream)"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: PGPObj - `n`t`t$($PGPObj | Out-String -Stream)"
 						if($pname -notin $($PGProperties.PropName)){
 							$PGProperties.Add($PGPObj)
 							$PGProcessedCount ++
 						}
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: Success ($pname): $PGProcessedCount of $PGInfoCount"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: Success ($pname): $PGProcessedCount of $PGInfoCount"
 					}else{
 						$PGFailedCount ++
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: Failure ($pname): $PGFailedCount of $PGInfoCount"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: Failure ($pname): $PGFailedCount of $PGInfoCount"
 					}
 				}
 				"OB" {
-					Write-Debug "`t`t`t`tProcess ObjScope: OB"
-					Write-Debug "`t`t`t`t`t`tObjRights`tADClass"
-					Write-Debug "`t`t`t`t`t`t$ObjRights`t$ADClass"
+					Write-Verbose "`t`t`t`tProcess ObjScope: OB"
+					Write-Verbose "`t`t`t`t`t`tObjRights`tADClass"
+					Write-Verbose "`t`t`t`t`t`t$ObjRights`t$ADClass"
 					$pname = $ADClass
 
 					if($ObjRights -like "FC"){
-						Write-Debug "`t`t`t`tProcess ObjScope: OB: FC Detected"
+						Write-Verbose "`t`t`t`tProcess ObjScope: OB: FC Detected"
 						$PGPObj = [PSCustomObject]@{
 							PropName   = $pname
 							PropType   = "ADClass"
@@ -572,7 +596,7 @@ function Grant-ADDTDGRights {
 							ACLScope   = $classmap["$($ADClass)"]
 						}
 					}else{
-						Write-Debug "`t`t`t`tProcess ObjScope: OB: FC not Detected"
+						Write-Verbose "`t`t`t`tProcess ObjScope: OB: FC not Detected"
 						$PGPObj = [PSCustomObject]@{
 							PropName   = $pname
 							PropType   = "ADClass"
@@ -582,16 +606,30 @@ function Grant-ADDTDGRights {
 						}
 					}
 
+
 					if($PGPObj){
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: PGPObj - `n`t`t$($PGPObj | Out-String -Stream)"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: PGPObj - `n`t`t$($PGPObj | Out-String -Stream)"
 						if($pname -notin $($PGProperties.PropName)){
 							$PGProperties.Add($PGPObj)
 							$PGProcessedCount ++
+
+							if($pname -like 'computer' -and $ObjRights -like 'DE'){
+								Write-Verbose "`t`t`t`tProcess ObjScope: OB: Class Computer detected - Adding serviceConnectionPoint ACL"
+								$PGPObjEx = [PSCustomObject]@{
+									PropName   = $pname
+									PropType   = "ADClass"
+									ACLTarget  = $classmap["serviceConnectionPoint"]
+									ADRights   = $RightsHash["$($ObjRights)"]
+									ACLScope   = $null
+								}
+								$PGProperties.Add($PGPObjEx)
+								$PGProcessedCount ++
+							}
 						}
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: Success ($pname): $PGProcessedCount of $PGInfoCount"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: Success ($pname): $PGProcessedCount of $PGInfoCount"
 					}else{
 						$PGFailedCount ++
-						Write-Debug "`t`t`t`tProcess ObjScope: PG: Process PG Values: Failure ($pname): $PGFailedCount of $PGInfoCount"
+						Write-Verbose "`t`t`t`tProcess ObjScope: PG: Process PG Values: Failure ($pname): $PGFailedCount of $PGInfoCount"
 					}
 				}
 				default {
@@ -604,23 +642,43 @@ function Grant-ADDTDGRights {
 			$PGPropertiesCount = $PGProperties.count
 			Write-Verbose "`n`n`t`tIdentified $PGPropertiesCount PGProperties for processing"
 
-			$PGPropertiesProcessedCount = 0
 			$InheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance]'Descendents'
 			$aces = New-Object System.Collections.Generic.List[System.DirectoryServices.ActiveDirectoryAccessRule]
 
+			Write-Debug "`t`t`t`tAce Info"
+			Write-Debug "`t`t`t`t`t$aces"
 			if($PGProperties){
 				foreach($PGProp in $PGProperties){
 					Write-Verbose "`t`t`t`tPGProperty Info"
 					Write-Verbose "`t`t`t`t`t`tName`tType"
 					Write-Verbose "`t`t`t`t`t`t-----`t-----"
 					Write-Verbose "`t`t`t`t`t`t$($PGProp.PropName)`t$($PGProp.PropType)"
+					
+					foreach($TarPath in $TargetPaths){
+						Write-Verbose "`t`t`t`t`t`t$($FunctionName):`t Checking for legacy ACEs:`t $($TarPath.DistinguishedName)"
+						$AclList = $TarPath.psbase.ObjectSecurity.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])
+						$RemoveAces = $AclList | Where-Object {$_.identityreference -like $DelegateSID}
+						
+						if($RemoveAces){
+							Write-Verbose "`t`t`t`t`t`t$($FunctionName):`t Found $($RemoveAces.Count) legacy ACEs:`t $($TarPath.DistinguishedName)"
+							Write-Verbose "`t`t`t`t`t`t$($FunctionName):`t Initiating ACE cleanup before rewrite:`t $($TarPath.DistinguishedName)"
+							
+							foreach($RA in $RemoveAces){
+								$TarPath.psbase.ObjectSecurity.RemoveAccessRule($RA) | Out-Null
+							}
+							
+							$TarPath.psbase.CommitChanges()
+							Write-Verbose "`t`t`t`t`t`t$($FunctionName):`t Legacy ACEs removed:`t $($TarPath.DistinguishedName)"
+						}
+					}
+					
 
 					$aceDef = $DelegateSID,($PGProp.ADRights),$accType,($PGProp.ACLTarget),$InheritanceType
-					Write-Debug "`t`t`t`t`t`tProcess PGProperties (Pre-ACLScope): aceDef - $($aceDef | Out-String)"
+					Write-Verbose "`t`t`t`t`t`tProcess PGProperties (Pre-ACLScope): aceDef - $($aceDef | Out-String)"
 					if($PGProp.ACLScope){
 						$aceDef += ($PGProp.ACLScope)
 					}
-					Write-Debug "`t`t`t`t`t`tProcess PGProperties (Post-ACLScope): aceDef - $($aceDef | Out-String)"
+					Write-Verbose "`t`t`t`t`t`tProcess PGProperties (Post-ACLScope): aceDef - $($aceDef | Out-String)"
 					try {
 						$aceObj = New-Object -TypeName System.DirectoryServices.ActiveDirectoryAccessRule($aceDef)
 					}
@@ -629,26 +687,32 @@ function Grant-ADDTDGRights {
 					}
 
 					if($aceObj){
-						Write-Debug "`t`t`t`t`t`tProcess PGProperties: aceObj - $($aceObj | Out-String)"
+						Write-Verbose "`t`t`t`t`t`tProcess PGProperties: aceObj - $($aceObj | Out-String)"
 						$aces.Add($aceObj)
-						Write-Debug "`t`t`t`t`t`tProcess PGProperties: Process ACE Object: Success"
+						Write-Verbose "`t`t`t`t`t`tProcess PGProperties: Process ACE Object: Success"
 					}else{
-						Write-Debug "`t`t`t`t`t`tProcess PGProperties: Process ACE Object: Failure"
+						Write-Verbose "`t`t`t`t`t`tProcess PGProperties: Process ACE Object: Failure"
 					}
 				}
 			}
-			Write-Verbose "`t`tAces added`t$($aces.count)`n`n"
+			Write-Debug "`t`tAces added`t$($aces.count)`n`n"
 			#endregion BuildACLElements
 
 			foreach($TarPath in $TargetPaths){
-				Write-Verbose "`t`t`t`t`t`tApplying ACEs to $($TarPath.DistinguishedName)"
+				Write-Verbose "`t`t`t`t`t`tApplying DACLs to $($TarPath.DistinguishedName)"
 				$SetAclLoop = 1
 				$SetAclCount = $aces.Count
 				foreach($ace in $aces){
 					Write-Verbose "`t`t`t`t`t`tWriting ACE $SetAclLoop of $SetAclCount"
 					$TarPath.psbase.ObjectSecurity.AddAccessRule($ace)
-					$TarPath.psbase.CommitChanges()
 					$SetAclLoop ++
+				}
+
+				try {
+					$TarPath.psbase.CommitChanges()
+				}
+				catch {
+					Write-Verbose "`t`t`t`t`t`tFailed to write one or more ACEs for path [$($TarPath.Path)]"
 				}
 			}
 
@@ -674,7 +738,7 @@ function Grant-ADDTDGRights {
 		Write-Verbose ""
 	}
 
-    end {
+	end {
 		Write-Verbose ""
 		Write-Verbose ""
 		Write-Verbose "Wrapping Up"

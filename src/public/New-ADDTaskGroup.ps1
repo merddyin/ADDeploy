@@ -1,73 +1,59 @@
 function New-ADDTaskGroup {
 <#
 	.SYNOPSIS
-		Command uses the specified OU path to auto-generate all task groups for a given object type.
+		Command uses the specified Class or SRV OU path to auto-generate all task groups for a given object type.
 
 	.DESCRIPTION
-		This cmdlet takes a specified OU, in distinguishedName format, to identify all required task delegation groups for that tier,
-		region, country, and site. The cmdlet then creates all of these groups within the correct location in the ADM focus container
-		structure. If specified, the cmdlet will also automatically assign the related ACLs for	each delegation group will also be deployed.
+		This cmdlet takes a specified Class or bottom level SRV OU, in distinguishedName or DirectoryEntry format, and uses it to dynamically
+		identify all required task delegation groups for that container and object class. The cmdlet then creates all of the groups within the 
+		appropriate ADM focus containers. SL level groups are stored in the designated global container structure, while all other groups are 
+		stored in their respective SL Groups containers (OU=Groups,OU=<SL>). If specified, the cmdlet will also automatically pass the resulting
+		DirectoryEntry objects to the Grant-ADDTDGRights cmdlet. If not specified, the cmdlet returns the resulting objects to the pipeline.
 
-		Note: An existing organization structure should already be deployed prior to running this cmdlet
+		Note: An existing ZTAD OU structure must already be deployed prior to running this cmdlet
 
-	.PARAMETER CreateLevel
-		Specifies which levels of groups should be created using one of the below values:
+	.PARAMETER StartOU
+		Accepts string inputs with the DistinguishedName of an an object class container, a bottom level SRV container, or the Provision/Deprovion
+		staging containers. 
 
-			- Site: Creates only the site level groups - useful for site specific task groups, particularly those with custom suffix
-			- Region: Creates only the region level groups - useful for region specific task groups, particularly those with custom suffix
-			- All: Creates both Site and Region groups - default value if this parameter is not specified
+	.PARAMETER MTRun
+		Only used when calling this cmdlet from the Publish-ADDZTADStructure -MultiThread command - modifies the behavior of progress
 
-	.PARAMETER SetPerms
-		Specifying this switch will initiate a push of the ACLs to the associated containers (Experimental).
+	.PARAMETER PipelineCount
+		Used to specity the number of objects being passed in the pipeline, if knownn, to use in showing progress
 
-		Note: Only groups with one of the standard suffixes should include this switch to avoid errors.
+	.PARAMETER TargetDE
+		Accepts one or more DirectoryEntry objects to process
 
-	.PARAMETER TargetOU
-		Specifies an OU, in DistinguishedName format, from which to determine the required task groups to create. Sample OU should specify
-		down to the same level that is being created (site level for Site/All, or Region level for Region only)
+	.PARAMETER Owner
+		The sAMAccountName that will be designated as the 'owner' for the TDGs
 
-	.PARAMETER OUFocus
-		Used to specify the OU focus for targeting. For standard suffixes, this should be either ADM, SRV, STD, STG, or you can specify
-		ALL to generate all four. Custom values are also accepted, but should be no more than three alpha characters. Specified characters
-		should ideally be in all upper case, though this is only to ensure consistent formatting for the names.
+	.EXAMPLE
+		C:\PS> $TDGs = New-ADDTaskGroup -CreateLevel TDG -StartOU "OU=Users,OU=TST,OU=STD,OU=Tier-2,DC=MyDomain,DC=com" -Owner flastname
+		C:\PS> $TDGs | Grant-ADDTDGRights
+		C:\PS> $TDGs | Select-Object -Property Path | Out-File -FilePath C:\Temp\TDGList.txt
 
-	.PARAMETER CustomSuffix
-		Optional parameter to specify a specific standard task group, or a custom suffix to create task groups for.
+		The first command creates all of the AD Task Delegation Groups (TDGs) related to standard User objects for the TST SL in Tier-2.
+		After completion, the resulting DirectoryEntry objects are returned to the pipeline, and are stored in the $TDGs variable.
 
-	.PARAMETER Push
-		Should not be used directly. This parameter is called when executed using the Push-ADDTaskGroup cmdlet.
+		The second command passes the $TDGs variable contents to the Grant-ADDTDGRights cmdlet, which will provision the required ACLs associated to each 
+		Task Delegation Group for the specified Users OU.
+
+		The final command selects the OU path and outputs the details to a text file.
 
 	.INPUTS
-		None
+		System.String
+		Integer
+		System.DirectoryServices.DirectoryEntry
 
 	.OUTPUTS
-		When executed via Push-ADDTaskGroup, and thus using the -Push switch, returns a value of False if successful, or True if there are errors
-
-	.EXAMPLE
-		C:\PS> New-ADDTaskGroup -CreateLevel Site -TargetOU "OU=TST,OU=TST,OU=NA,OU=Tier-0,DC=test,DC=local"
-
-		This command creates all site level task groups, but no regional ones, for Tier-0, NA region, TST country, and TST site within the
-		test.local domain. This command does not apply any ACLs, so the either the Set or Push-ADDOrgAcl cmdlets will need to be called separately.
-
-	.EXAMPLE
-		C:\PS> New-ADDTaskGroup -CreateLevel All -TargetOU "OU=TST,OU=TST,OU=NA,DC=test,DC=local" -SetPerms
-
-		Similar to the first example, but this command also creates the regional task groups and applies the associated ACLs, provided only the
-		standard suffixes are being used.
-
-	.EXAMPLE
-		C:\PS> New-ADDTaskGroup -CreateLevel Region -TargetOU "OU=NA,DC=test,DC=local" -SetPerms
-
-		This command creates only the region level task groups, but no site groups, and then applies the associated ACLs.
-
-	.EXAMPLE
-		C:\PS> New-ADDTaskGroup -TargetOU "OU=TST,OU=TST,OU=NA,DC=test,DC=local" -OUFocus "NET" -CustomSuffix "Test_TaskGroup"
-
-		This command creates both region and site level groups, but using custom values for the OUFocus and suffix values. The specified focus
-		does not need to exist within the OU structure, since no ACLs are being set. This approach can be used to generate task delegation groups
-		for other items outside of those used to manage AD itself, such as a Network device delegation group in this case.
+		System.DirectoryServices.DirectoryEntry
 
 	.NOTES
+		Help Last Updated: 11/8/2022
+
+		Cmdlet Version 1.2 - Release
+
         Copyright (c) Topher Whitfield All rights reserved.
 
         Use of this source code is subject to the terms of use as outlined in the included LICENSE.RTF file, or elsewhere within this file. This
@@ -79,10 +65,6 @@ function New-ADDTaskGroup {
 #>
 	[CmdletBinding(SupportsShouldProcess=$true,DefaultParameterSetName="ChainRun",ConfirmImpact='Low')]
 	param (
-		[Parameter(ParameterSetName="ManualRunA")]
-		[ValidateSet("TDG","ALL")]
-		[string]$CreateLevel,
-
 		[Parameter(ParameterSetName="ManualRunA",Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
 		[string[]]$StartOU,
 
@@ -93,27 +75,20 @@ function New-ADDTaskGroup {
 		[int]$PipelineCount,
 
 		[Parameter(ParameterSetName="ChainRun",Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
-		[System.DirectoryServices.DirectoryEntry]$TargetDE
+		[System.DirectoryServices.DirectoryEntry]$TargetDE,
+
+		[Parameter(ParameterSetName="ManualRunA",Mandatory=$true)]
+		[Parameter(ParameterSetName="ChainRun",Mandatory=$true)]
+		[string]$Owner
 	)
 
-    begin {
-        $FunctionName = $pscmdlet.MyInvocation.MyCommand.Name
-        Write-Verbose "------------------- $($FunctionName): Start -------------------"
+	begin {
+		$FunctionName = $pscmdlet.MyInvocation.MyCommand.Name
+		Write-Verbose "------------------- $($FunctionName): Start -------------------"
 		Write-Verbose ""
 		Write-Verbose "ParameterSet:`t$($pscmdlet.ParameterSetName)"
-        #TODO: Update WhatIf processing support to match New-ADDTopLvlOU cmdlet
-		#TODO: Update comment based help
-
-        if($pscmdlet.ParameterSetName -like "ManualRun*"){
-            switch ($CreateLevel) {
-				# Create TDGs only
-				"TDG" {$CreateVal = 1}
-				# Create TDGs and call Grant-ADDTDGRights
-                Default {$CreateVal = 2}
-            }
-        }else {
-            $ChainRun = $true
-        }
+		#TODO: Update help
+		#TODO: Add error handling to ensure groups are not created with 'NoMatch', and to provide feedback to console
 
 		# Detect if input is coming from pipeline or not, and set values for fast detect later
 		if($pscmdlet.MyInvocation.ExpectingInput -or $ChainRun){
@@ -124,12 +99,18 @@ function New-ADDTaskGroup {
 			if($MTRun){
 				$ProgParams = @{
 					Id = 25
-					ParentId = 20
+				}
+				
+				if($PipelineCount){
+					$ProgParams.Add("ParentId",20)
 				}
 			}else {
 				$ProgParams = @{
 					Id = 15
-					ParentId = 10
+				}
+				
+				if($PipelineCount){
+					$ProgParams.Add("ParentId",10)
 				}
 			}
 
@@ -144,48 +125,57 @@ function New-ADDTaskGroup {
 			Write-Verbose "Pipeline:`tNot Detected"
 		}
 
+		Write-Debug "`t`tAttempting to find owner"
+		$OwnerObj = Find-ADDADObject -ADClass user -ADAttribute sAMAccountName -SearchString $Owner
+		if($OwnerObj){
+			$OwnerDN = $OwnerObj.distinguishedName
+		}else{
+			Write-Error "The value specified for Owner ($Owner) was not found - Fatal Error" -ErrorAction Stop
+		}
+
+		# Hash for splatting info to New-ADDADObject cmdlet
+		$TDGHash = @{
+			ObjOwner = $OwnerDN
+			ObjFocus = "ADM"
+			ObjRefType = "TDG"
+			ObjDescription = "Task Delegation Group created as part of ZTAD framework"
+		}
+
 		# Placeholder for collecting TDGs, either to return to the caller, or to pass to next cmdlet
-        $FinalTDGObjs = New-Object System.Collections.Generic.List[System.DirectoryServices.DirectoryEntry]
+		$FinalTDGObjs = New-Object System.Collections.Generic.List[System.DirectoryServices.DirectoryEntry]
 
 		# Establish counters to enable progress tracking
-		$AllTDGProcessedCount = 0
-		$TDGShouldStageCount = 0
-		$TDGStagedCount = 0
-        $ProcessedCount = 0
-        $FailedCount = 0
-        $ExistingCount = 0
-        $NewCount = 0
-        $GCloopCount = 0
-        $loopCount = 1
-        $subloopCount = 1
+		$ProcessedCount = 0
+		$FailedCount = 0
+		$ExistingCount = 0
+		$NewCount = 0
+		$GCloopCount = 0
+		$loopCount = 1
 
 		# Create timer objects to enable tracking of execution time
-		#TODO: All: Add switch options to allow this functionality to be turned off - P5
-        $loopTimer = [System.Diagnostics.Stopwatch]::new()
+		$loopTimer = [System.Diagnostics.Stopwatch]::new()
 		# Placeholder array to collect results of above counter
-        $loopTimes = @()
+		$loopTimes = @()
 
-		$subloopTimer = [System.Diagnostics.Stopwatch]::new()
+		Write-Verbose ""
+	}
 
-        Write-Verbose ""
-    }
-
-    process {
-        Write-Verbose ""
-        Write-Verbose "`t`t****************** Start of loop ($loopCount) ******************"
-        Write-Verbose ""
-        $loopTimer.Start()
+	process {
+		Write-Verbose ""
+		Write-Verbose "`t`t****************** Start of loop ($loopCount) ******************"
+		Write-Verbose ""
+		$loopTimer.Start()
 
 		# Enforced .NET garbage collection to ensure memory utilization does not balloon
 		if($GCloopCount -eq 30){
-			Run-MemClean
+			Invoke-MemClean
 			$GCloopCount = 0
 		}
 
-        #region DetectInputType
+		#region DetectInputType
 		# Start process run by detecting the input object type
-        Write-Verbose "`t`tDetect input type details"
-        Write-Verbose ""
+		Write-Verbose "`t`tDetect input type details"
+		Write-Verbose ""
 		if($Pipe){
 			Write-Verbose "`t`t`tInput Type:`tPipeline"
 			$TargetItem = $_
@@ -198,28 +188,32 @@ function New-ADDTaskGroup {
 		}
 
 		Write-Verbose ""
-        try {
-            $TargetType = ($TargetItem.GetType()).name
-            Write-Verbose "`t`t`tTarget Value:`t$TargetItem"
-            Write-Verbose "`t`t`tTarget Type:`t$TargetType"
-        }
-        catch {
-            Write-Error "Unable to determine target type from value provided - Quitting" -ErrorAction Stop
-        }
+		try {
+			$TargetType = ($TargetItem.GetType()).name
+			Write-Verbose "`t`t`tTarget Value:`t$TargetItem"
+			Write-Verbose "`t`t`tTarget Type:`t$TargetType"
+		}
+		catch {
+			Write-Error "Unable to determine target type from value provided - Quitting" -ErrorAction Stop
+		}
 
 		# Use the input object type to determine how to create a reference DirectoryEntry object for the input OU path
+		$DEPath = $null
 		switch ($TargetType){
 			"DirectoryEntry" {
-                $DEPath = $TargetItem.Path
+				Write-Verbose "`t`t`tDETarget:`t$TargetItem.Path" 
+
+				$DEPath = $TargetItem.Path
 			}
 
 			"ADOrganizationalUnit" {
 				$DEPath = "LDAP://$($TargetItem.DistinguishedName)"
+
 			}
 
 			Default {
 				if($TargetItem -like "LDAP://*"){
-                    $DEPath = $TargetItem
+					$DEPath = $TargetItem
 				}else{
 					if($TargetItem -match $OUdnRegEx){
 						$DEPath = "LDAP://$TargetItem"
@@ -232,17 +226,17 @@ function New-ADDTaskGroup {
 			}
 		}
 
-        Write-Verbose "`t`t`tDEPath:`t$DEPath"
+		Write-Verbose "`t`t`tDEPath:`t$DEPath"
 
-        if([adsi]::Exists($DEPath)) {
-            $TargetDEObj = New-Object System.DirectoryServices.DirectoryEntry($DEPath)
-            Write-Verbose "`t`t`tOrg OU Target Path:`t$($TargetDEObj.Path)"
-        }else {
-            Write-Error "The specified OU ($TargetItem) wasn't found in the domain - Skipping" -ErrorAction Continue
-            $FailedCount ++
-            break
-        }
-        #endregion DetectInputType
+		if([adsi]::Exists($DEPath)) {
+			$TargetDEObj = New-Object System.DirectoryServices.DirectoryEntry($DEPath)
+			Write-Verbose "`t`t`tOrg OU Target Path:`t$($TargetDEObj.Path)"
+		}else {
+			Write-Error "The specified OU ($TargetItem) wasn't found in the domain - Skipping" -ErrorAction Continue
+			$FailedCount ++
+			break
+		}
+		#endregion DetectInputType
 
 		# Use pipeline value to determine if Progress indicator should be started, as well as determine completion percentage
 		if($Pipe){
@@ -273,13 +267,14 @@ function New-ADDTaskGroup {
 			$TierID = $TierHash[$FullTierID]
 		}
 
+		Write-Verbose "$($LPP3)`t`tDerived TierID:`t$TierID"
+
 		switch ($TierID) {
 			"T0" { $TierAssocFilt = @(0,1,4,6) }
 			"T1" { $TierAssocFilt = @(0,2,4,5) }
 			"T2" { $TierAssocFilt = @(0,3,5,6) }
 		}
 
-		Write-Verbose "$($LPP3)`t`tDerived TierID:`t$TierID"
 		Write-Debug "`t`tTierAssocFilt:`t$TierAssocFilt"
 
 		$FocusID = $PIElements.FocusID
@@ -296,8 +291,8 @@ function New-ADDTaskGroup {
 
 		switch ($PIElements.MaxLvl) {
 			{$_ -ge 1} {
-				if($PIElements.OrgL1){
-					Write-Debug "`t`tL1 Org:`t$($PIElements.OrgL1)"
+				if($PIElements.OrgL1 -or ($FocusID -like $FocusHash["Stage"])){
+					Write-Verbose "`t`tL1 Org:`t$($PIElements.OrgL1)"
 					$OrgElements += $PIElements.OrgL1
 
 					$AllPrefixes += [PSCustomObject]@{
@@ -308,12 +303,16 @@ function New-ADDTaskGroup {
 			}
 
 			{$_ -ge 2} {
-				if($PIElements.OrgL2){
-					Write-Debug "`t`tL2 Org:`t$($PIElements.OrgL2)"
-					$OrgElements += $PIElements.OrgL2
-					$AllPrefixes += [PSCustomObject]@{
-						NameElement = Join-String $PStr,($PIElements.OrgL1),($PIElements.OrgL2) -Separator "_"
-						Lvl = 2
+				if($PIElements.OrgL2 -or ($FocusID -like $FocusHash["Stage"])){
+					if($FocusID -like $FocusHash["Stage"]){
+						Write-Verbose "`t`tL2 Org:`tSkipped for Staging"
+					} else {
+						Write-Verbose "`t`tL2 Org:`t$($PIElements.OrgL2)"
+						$OrgElements += $PIElements.OrgL2
+						$AllPrefixes += [PSCustomObject]@{
+							NameElement = Join-String $PStr,($PIElements.OrgL1),($PIElements.OrgL2) -Separator "_"
+							Lvl = 2
+						}
 					}
 				}else{
 					Write-Warning "MaxLevel $MaxLevel or greater - OrgL2 not specified"
@@ -321,7 +320,7 @@ function New-ADDTaskGroup {
 			}
 
 			{$_ -eq 3} {
-				if($PIElements.OrgL3){
+				if($PIElements.OrgL3 -or ($FocusID -like $FocusHash["Stage"])){
 					Write-Debug "`t`tL3 Org:`t$($PIElements.OrgL3)"
 					$OrgElements += $PIElements.OrgL3
 					$AllPrefixes += [PSCustomObject]@{
@@ -344,21 +343,19 @@ function New-ADDTaskGroup {
 
 		if($PIElements.ObjectSubType){
 			Write-Debug "`t`tObject SubType Detected - Retrieving Object SubType Data"
-			$ParentObjectType = $PIElements.ObjectType
-			$ObjectTypes = $ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_SubTypeOU -like $($PIElements.ObjectSubType) -and $_.OBJ_ItemType -like "Primary" }
+			$ObjectTypes = @($ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_SubTypeOU -like $($PIElements.ObjectSubType) -and $_.OBJ_ItemType -like "Primary" })
 		}else{
 			if($PIElements.ObjectType){
 				Write-Debug "`t`tObject Type Detected - Retrieving Primary Object Type Data"
-				$ObjectTypes = $ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $($PIElements.ObjectType) -and $_.OBJ_ItemType -like "Primary" }
+				$ObjectTypes = @($ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_TypeOU -like $($PIElements.ObjectType) -and $_.OBJ_ItemType -like "Primary" })
 			}else{
 				Write-Debug "`t`tNo Object Type or Sub-Type Detected - Retrieving Server Object Type Data"
-				$ObjectTypes = $ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_ItemType -like "Primary" }
+				$ObjectTypes = @($ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_ItemType -like "Primary" })
 			}
 		}
 
 		# Ensure any misc object types are also captured
-		$MiscObjectTypes = $ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_ItemType -like "Primary" -and $_.OBJ_TypeOU -like $null }
-
+		$MiscObjectTypes = @($ObjInfo | Where-Object{ $_.OBJ_relatedfocus -like $FocusID -and $_.OBJ_ItemType -like "Primary" -and $_.OBJ_TypeOU -like $null })
 		if($MiscObjectTypes){
 			$ObjectTypes += $MiscObjectTypes
 		}
@@ -374,12 +371,13 @@ function New-ADDTaskGroup {
 				$ObjRefID = $ObjType.OBJ_refid
 				$ObjectType = $ObjType.OBJ_TypeOU
 				$ObjectDesc = $ObjType.OBJ_category
-				Write-Verbose "`t`t`t`tType  DBId   RefId"
-				Write-Verbose "`t`t`t`t----- -----  ------"
-				Write-Verbose "`t`t`t`t$($ObjectType) $($ObjDBRefID)     $ObjRefID"
+				$ObjectTierAssoc = [int]$ObjType.OBJ_TierAssoc
+				Write-Verbose "`t`t`t`tType        `t`tDBId `t`tRefId `t`tTiers"
+				Write-Verbose "`t`t`t`t----        `t`t---- `t`t----- `t`t-----"
+				Write-Verbose "`t`t`t`t$($ObjectType) `t`t$($ObjDBRefID)   `t`t$($ObjRefID)      `t`t$($ObjectTierAssoc)"
 				Write-Verbose ""
 				Write-Verbose "`t`t`t`t`tAssess Tier Association"
-				if($ObjType.OBJ_TierAssoc -in $TierAssocFilt){
+				if($ObjectTierAssoc -in $TierAssocFilt){
 					Write-Verbose "`t`t`t`t`t`tOutcome:`tIn Tier - Retrieve Property Groups"
 					Write-Verbose ""
 					$TDGPropGroups = $AllPropGroups | Where-Object{$_.OBJ_refid -like $ObjDBRefID}
@@ -406,38 +404,57 @@ function New-ADDTaskGroup {
 							Write-Verbose ""
 
 							foreach($Prefix in $AllPrefixes){
-
+								$OUPathReg = "^(OU=Tasks,OU=)($($OrgElements -Join '|'))(,OU=$($FocusHash['Admin']),OU=)($CETierRegEx),$DomDN"
 								$PrefixName = $Prefix.NameElement
 								Write-Verbose "`t`t`t`t`tProcess Prefix:`t$PrefixName"
 								$TDGValue = Join-String -Strings $PrefixName,$TDGFullSuffix -Separator "-"
 								Write-Verbose "`t`t`t`t`t`tFull Name:`t$TDGValue"
 
-								[string]$Destination = $TargetDEObj.DistinguishedName
-								Write-Verbose "`t`t`t`t`t`tOrig TargetDN:`t$Destination"
+								Write-Verbose "`t`t`t`t`tTesting destination path..."
+								[string]$Destination = "$($TargetDEObj.DistinguishedName)"
+								Write-Verbose ""
+								Write-Verbose "`t`t`t`t`t`tInitial Value:`t$Destination"
 
-								if($Prefix.Lvl -eq $MaxLevel){
-									$DestinationDN = $Destination -replace $FocusID,$FocusHash["Admin"]
-									Write-Verbose "`t`t`t`t`t`tAdmin TargetDN:`t$DestinationDN"
-								}else{
-									$DestinationDN = ($Destination -replace (Join-String -Strings $OrgElements -Separator "|"),$OUGlobal) -replace $FocusID,$FocusHash["Admin"]
-									Write-Verbose "`t`t`t`t`t`tGBL Admin TargetDN:`t$DestinationDN"
+								#Check ObjectType or Org
+								if($Destination -match "^(OU=)($($OrgElements -Join '|'))"){
+									$Destination = "OU=Tasks,$Destination"
+									Write-Debug "`t`t`t`t`t`t`tCP1 (Obj or Org) Value:`t$Destination"
 								}
 
-								if($DestinationDN -notmatch "^$($DestHash[$TDGPropGroup.OBJ_destination]),*"){
-									if($FocusID -match $FocusHash["Server"]){
-										$DestinationDN = Join-String $DestHash[$TDGPropGroup.OBJ_destination],$DestinationDN -Separator ","
-									}else{
-										$DestinationDN = $DestinationDN -replace "OU=$ObjectType","$($DestHash[$TDGPropGroup.OBJ_destination])"
-									}
+								#Check Specific ObjectType
+								if($Destination -match "^OU=$ObjectType," -and $ObjectType -notlike 'Tasks'){
+									$Destination = $Destination -replace "^(OU=)($ObjectType)(,)","OU=Tasks,"
+									Write-Debug "`t`t`t`t`t`t`tCP2 (ObjectType) Value:`t$Destination"
+								}
+								
+								#Check focus
+								if($Destination -notmatch ",OU=$($FocusHash['Admin']),"){
+									$Destination = $Destination -replace "(OU=)($FocusID)(,)","OU=$($FocusHash['Admin']),"
+									Write-Debug "`t`t`t`t`t`t`tCP3 (Focus) Value:`t$Destination"
 								}
 
-								Write-Verbose "`t`t`t`t`t`tFinal DestinationDN:`t$DestinationDN"
+								#Check RegEx match
+								if($Destination -notmatch $OUPathReg){
+									$Destination = "OU=Tasks,OU=$(($PrefixName -split '_')[2]),OU=$($FocusHash['Admin']),OU=$($CETierHash[$TierID]),$DomDN"
+									Write-Debug "`t`t`t`t`t`t`tCP4 (Rewrite) Value:`t$Destination"
+								}
+
+								#Check exists
+								if(-not($([adsi]::Exists("LDAP://$Destination")))){
+									$Destination = $Destination -replace "(OU=)($($OrgElements -Join '|'))(,)","OU=$OUGlobal,"
+									Write-Debug "`t`t`t`t`t`t`tCP4 (Existence, Redir Global) Value:`t$Destination"
+
+								}
+
+								Write-Verbose "`t`t`t`t`t`tFinal Destination:`t$Destination"
 								$TDGElements = [PSCustomObject]@{
 									TDGName = $TDGValue
 									TDGSetAcl = $GrantAcl
-									TDGDestination = $DestinationDN
+									TDGDestination = $Destination
 									TDGRelSuffix = $TDGSuffix
 								}
+
+								Write-Debug "`t`t`t`t`t`tTDGElements for Creation: `n`t`t`t`t`t`t$TDGElements"
 
 								$AllTDGValues.Add($TDGElements)
 
@@ -467,7 +484,6 @@ function New-ADDTaskGroup {
 
 				$TotalTDGItems = $($AllTDGValues.Count)
 				Write-Verbose "`t`t`t`tTDGs Staged:`t$TotslTDGItems"
-				$AllTDGProcessedCount = 0
 				$TDGProcessedCount = 0
 			}
 
@@ -479,7 +495,7 @@ function New-ADDTaskGroup {
 						$TDGPercentComplete = 0
 					}
 
-					Write-Progress -Id $($ProgParams.Id + 5) -Activity 'Processing' -CurrentOperation "$($TDGItem.TDGRelSuffix)" -PercentComplete $PercentComplete -ParentId $ProgParams.Id
+					Write-Progress -Id $($ProgParams.Id + 5) -Activity 'Processing' -CurrentOperation "$($TDGItem.TDGRelSuffix)" -PercentComplete $TDGPercentComplete -ParentId $ProgParams.Id
 				}
 
 				$TDGName = $TDGItem.TDGName
@@ -487,11 +503,20 @@ function New-ADDTaskGroup {
 				$DestType = ($TDGDestination.GetType()).Name
 				Write-Verbose "`t`t`t`tDest Obj Type:$DestType"
 
+				# Identify additional attribute values
+				$PreTmp = $(($TDGName).Split('-'))[0]
+				Write-Verbose "$($FunctionName): `tPreTmp Value: `t$($PreTmp)"
+				#!: Note - Double cast is intentional and required to prevent returning ASCI char code instead of int value
+				$tierTmp = [int][string]$PreTmp[1]
+				Write-Verbose "$($FunctionName): `ttierTmp Value: `t$($tierTmp)"
+				$scopeTmp = $(($PreTmp).Split('_'))[2]
+				Write-Verbose "$($FunctionName): `tscopeTmp Value: `t$($scopeTmp)"
+
 				if ($pscmdlet.ShouldProcess($($TDGName), "Create AD Group")) {
 					Write-Verbose "`t`t`t`tCalling New-ADDADObject"
 					Write-Verbose "`t`t`t`t`tName:`t$TDGName"
 					Write-Verbose "`t`t`t`t`tDestination:`t$TDGDestination"
-					$TDGObj = New-ADDADObject -ObjName $TDGName -ObjParentDN $TDGDestination -ObjType "group"
+					$TDGObj = New-ADDADObject -ObjName $TDGName -ObjParentDN $TDGDestination -ObjTier $tierTmp -ObjScope $scopeTmp @TDGHash
 
 					if($TDGObj){
 						switch ($TDGObj.State) {
@@ -534,33 +559,33 @@ function New-ADDTaskGroup {
 			}
 
 			if($Pipe){
-				Write-Progress -Id $($WriteProgParams.Id + 5) -Activity 'Processing' -Completed -ParentId $WriteProgParams.Id
+				Write-Progress -Id $($ProgParams.Id + 5) -Activity 'Processing' -Completed -ParentId $ProgParams.Id
 			}
 
 		}
 
-        $ProcessedCount ++
-        $loopCount ++
-        $GCloopCount ++
-        $loopTimer.Stop()
-        $loopTime = $loopTimer.Elapsed.TotalSeconds
-        $loopTimes += $loopTime
-        Write-Verbose "`t`tLoop $($ProcessedCount) Time (sec):`t$loopTime"
+		$ProcessedCount ++
+		$loopCount ++
+		$GCloopCount ++
+		$loopTimer.Stop()
+		$loopTime = $loopTimer.Elapsed.TotalSeconds
+		$loopTimes += $loopTime
+		Write-Verbose "`t`tLoop $($ProcessedCount) Time (sec):`t$loopTime"
 
-        if($loopTimes.Count -gt 2){
-            $loopAverage = [math]::Round(($loopTimes | Measure-Object -Average).Average, 3)
-            $loopTotalTime = [math]::Round(($loopTimes | Measure-Object -Sum).Sum, 3)
-            Write-Verbose "`t`tAverage Loop Time (sec):`t$loopAverage"
-            Write-Verbose "`t`tTotal Elapsed Time (sec):`t$loopTotalTime"
-        }
-        $loopTimer.Reset()
+		if($loopTimes.Count -gt 2){
+			$loopAverage = [math]::Round(($loopTimes | Measure-Object -Average).Average, 3)
+			$loopTotalTime = [math]::Round(($loopTimes | Measure-Object -Sum).Sum, 3)
+			Write-Verbose "`t`tAverage Loop Time (sec):`t$loopAverage"
+			Write-Verbose "`t`tTotal Elapsed Time (sec):`t$loopTotalTime"
+		}
+		$loopTimer.Reset()
 
-        Write-Verbose ""
-        Write-Verbose "`t`t****************** End of loop ($loopCount) ******************"
-        Write-Verbose ""
-    }
+		Write-Verbose ""
+		Write-Verbose "`t`t****************** End of loop ($loopCount) ******************"
+		Write-Verbose ""
+	}
 
-    end {
+	end {
 		Write-Verbose ""
 		Write-Verbose ""
 		Write-Verbose "Wrapping Up"
@@ -573,7 +598,7 @@ function New-ADDTaskGroup {
 		Write-Verbose ""
 
 		if($Pipe){
-			Write-Progress -Activity "Creating OUs" -CurrentOperation "Finished" -Completed @WriteProgParams
+			Write-Progress -Activity "Creating OUs" -CurrentOperation "Finished" -Completed @ProgParams
 		}
 
 
@@ -585,7 +610,7 @@ function New-ADDTaskGroup {
 				Write-Verbose ""
 
 				if ($pscmdlet.ShouldProcess("Process $($FinalTDGObjs.Count) TDGs", "Setting ACLs")) {
-					$FinalTDGObjs | Grant-ADDTDGRights -PipelineCount $($FinalTDGObjs.Count)
+					$FinalTDGObjs | Grant-ADDTDGRight -PipelineCount $($FinalTDGObjs.Count)
 				}else{
 					Write-Verbose "`t`tWhatIf Detected - Would pass $($FinalTDGObjs.Count) TDG results to Grant-ADDTDGRights"
 				}
@@ -598,5 +623,5 @@ function New-ADDTaskGroup {
 				return $FinalTDGObjs
 			}
 		}
-    }
+	}
 }

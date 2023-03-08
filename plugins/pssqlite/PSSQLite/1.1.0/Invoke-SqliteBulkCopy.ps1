@@ -5,11 +5,11 @@
 
 .DESCRIPTION
     Use a SQLite transaction to quickly insert data.  If we run into any errors, we roll back the transaction.
-
+    
     The data source is not limited to SQL Server; any data source can be used, as long as the data can be loaded to a DataTable instance or read with a IDataReader instance.
 
 .PARAMETER DataSource
-    Path to one ore more SQLite data sources to query
+    Path to one ore more SQLite data sources to query 
 
 .PARAMETER Force
     If specified, skip the confirm prompt
@@ -35,7 +35,7 @@
             fullname VARCHAR(20) PRIMARY KEY,
             surname TEXT,
             givenname TEXT,
-            BirthDate DATETIME)"
+            BirthDate DATETIME)" 
 
     #Build up some fake data to bulk insert, convert it to a datatable
         $DataTable = 1..10000 | %{
@@ -48,8 +48,8 @@
         } | Out-DataTable
 
     #Copy the data in within a single transaction (SQLite is faster this way)
-        Invoke-SQLiteBulkCopy -DataTable $DataTable -DataSource $Database -Table Names -NotifyAfter 1000 -ConflictClause Ignore -Verbose
-
+        Invoke-SQLiteBulkCopy -DataTable $DataTable -DataSource $Database -Table Names -NotifyAfter 1000 -ConflictClause Ignore -Verbose 
+        
 .INPUTS
     System.Data.DataTable
 
@@ -142,7 +142,7 @@
 
     )
 
-    Write-Debug "Running Invoke-SQLiteBulkCopy with ParameterSet '$($PSCmdlet.ParameterSetName)'."
+    Write-Verbose "Running Invoke-SQLiteBulkCopy with ParameterSet '$($PSCmdlet.ParameterSetName)'."
 
     Function CleanUp
     {
@@ -153,7 +153,7 @@
         {
             $conn.Close()
             $conn.Dispose()
-            Write-Debug "Closed connection"
+            Write-Verbose "Closed connection"
         }
         $com.Dispose()
     }
@@ -224,13 +224,13 @@
     #Connections
         if($PSBoundParameters.Keys -notcontains "SQLiteConnection")
         {
-            if ($DataSource -match ':MEMORY:')
+            if ($DataSource -match ':MEMORY:') 
             {
                 $Database = $DataSource
             }
-            else
+            else 
             {
-                $Database = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataSource)
+                $Database = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DataSource)    
             }
 
             $ConnectionString = "Data Source={0}" -f $Database
@@ -253,10 +253,10 @@
         {
             Throw $_
         }
-
-    Write-Debug "DATATABLE IS $($DataTable.gettype().fullname) with value $($Datatable | out-string)"
+    
+    write-verbose "DATATABLE IS $($DataTable.gettype().fullname) with value $($Datatable | out-string)"
     $RowCount = $Datatable.Rows.Count
-    Write-Debug "Processing datatable with $RowCount rows"
+    Write-Verbose "Processing datatable with $RowCount rows"
 
     if ($Force -or $PSCmdlet.ShouldProcess("$($DataTable.Rows.Count) rows, with BoundParameters $($PSBoundParameters | Out-String)", "SQL Bulk Copy"))
     {
@@ -315,7 +315,7 @@
                 $param = New-Object System.Data.SQLite.SqLiteParameter $ColumnToParamHash[$Column]
                 [void]$Command.Parameters.Add($param)
             }
-
+            
             for ($RowNumber = 0; $RowNumber -lt $RowCount; $RowNumber++)
             {
                 $row = $Datatable.Rows[$RowNumber]
@@ -352,9 +352,9 @@
                     Catch
                     {
                         #Minimal testing for this rollback...
-                            Write-Debug "Rolling back due to error:`n$_"
+                            Write-Verbose "Rolling back due to error:`n$_"
                             $Transaction.Rollback()
-
+                        
                         #Clean up and throw an error
                             CleanUp -conn $SQLiteConnection -com $Command -BoundParams $PSBoundParameters
                             Throw "Rolled back due to error:`n$_"
@@ -362,13 +362,13 @@
 
                 if($NotifyAfter -gt 0 -and $($RowNumber % $NotifyAfter) -eq 0)
                 {
-                    Write-Debug "Processed $($RowNumber + 1) records"
+                    Write-Verbose "Processed $($RowNumber + 1) records"
                 }
-            }
+            }  
     }
-
+    
     #Commit the transaction and clean up the connection
         $Transaction.Commit()
         CleanUp -conn $SQLiteConnection -com $Command -BoundParams $PSBoundParameters
-
+    
 }

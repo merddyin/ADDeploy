@@ -1,33 +1,42 @@
 function Import-ADDModuleData {
 <#
     .SYNOPSIS
-        Imports data from embedded Sqlite data source for use in functions
+        Short description
 
     .DESCRIPTION
-        This cmdlet initiates a connection to the ADDeploySettings.sqlite data source. After establishing the connection, the function
-        executes a series of queries to populate variables that will be used at run-time in the various public functions.
+        Long description
 
-    .PARAMETER DataSet
-        Used to specify the name of a previously defined data set to be retrieved
-
-    .PARAMETER QueryFilter
-        Used to specify a sub-filter to apply when needing to select one type of item to return
-
-    .PARAMETER DataQuery
-        Used to specify a custom query for retrieving data from the database
+    .PARAMETER exampleparam
+        Description of parameter and required elements
 
     .EXAMPLE
-        Placeholder text
+        Example of how to use this cmdlet
+
+    .EXAMPLE
+        Another example of how to use this cmdlet
+
+    .INPUTS
+        Inputs to this cmdlet (if any)
+
+    .OUTPUTS
+        Output from this cmdlet (if any)
 
     .NOTES
-        Module developed by Topher Whitfield for deploying and maintaining a 'Red Forest' environment and all use and distribution rights remain in force.
-        Help Last Updated: 7/22/2019
+        Help Last Updated: 10/24/2020
+
+        Cmdlet Version: 1.0
+        Cmdlet Status: Release
+
+        Copyright (c) Deloitte. All rights reserved.
+
+        Use of this source code is subject to the terms of use as outlined in the included LICENSE file, or elsewhere within this file. This
+        source code is provided 'AS IS', with NO WARRANTIES either expressed or implied. Use of this code within your environment is done at your
+        own risk, and Deloitte assumes no liability.
 
     .LINK
-        https://mer-bach
-
+        https://deloitte.com
 #>
-[CmdletBinding(DefaultParameterSetName="StandardQuery")]
+    [CmdletBinding(DefaultParameterSetName="StandardQuery")]
     Param(
         [Parameter(Mandatory=$true,Position=0,ParameterSetName="StandardQuery")]
         [string]$DataSet,
@@ -47,7 +56,7 @@ function Import-ADDModuleData {
 
         if(Test-Path $MyModulePath){
             $DBSrcPath = Join-Path -Path $MyModulePath -ChildPath '\src\other'
-        }else{
+        } else{
             $scriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
             $DBSrcPath = Join-Path -Path $scriptDir -ChildPath '\src\other'
         }
@@ -70,7 +79,6 @@ function Import-ADDModuleData {
         if(!($DataSet)){
             $DataSet = "-Custom Query-"
         }
-        #TODO: Verify OBJ_AssignACLs from table AP_Objects isn't in use anywhere and delete column
     }
 
     Process {
@@ -106,7 +114,7 @@ function Import-ADDModuleData {
                     if($QueryFilter){
                         $Query = "Select * FROM OU_Organization WHERE OU_schema = '$QueryFilter'"
                     }else{
-                        $Query = "Select * FROM Cust_OU_Organization"
+                        $Query = "Select * FROM Cust_OU_Organization WHERE ou_enabled = 1"
                     }
                 }
 
@@ -216,6 +224,14 @@ function Import-ADDModuleData {
                 "AttribMap" {
                     $Query = "Select OBJ_Name,OBJ_guid FROM AD_Attributes WHERE OBJ_adtype = '$QueryFilter'"
                 }
+
+                "RoleData" {
+                    $Query = "Select * from AP_Roles"
+                }
+
+                "RolePermissionData" {
+                    $Query = "Select * from AP_RolePermissions"
+                }
             }
 
         }else{
@@ -233,11 +249,12 @@ function Import-ADDModuleData {
                 Write-Verbose "`t`t`t`t`t`t`t`tQuery Result:`tData Retrieved"
             }else{
                 Write-Verbose "`t`t`t`t`t`t`t`tQuery Result:`tNo Data Retrieved"
+                Write-Error "Failed: $DataSet"
             }
         }
         catch
         {
-            Write-Error "`t`t`t`t`t`t`t`tQuery Result:`tFailed" -ErrorAction Continue
+            Write-Error "`t`t`t`t`t`t`t`tQuery Result:`tFailed - $DataSet" -ErrorAction Continue
             Write-Debug "`t`t`t`t`t`t`t`tExecuted Query:`t$Query"
             Write-Debug "`t`t`t`t`t`t`t`tQuery Type: $QType"
         }
@@ -251,7 +268,7 @@ function Import-ADDModuleData {
         if($Output){
             Return $Output
         }else{
-            Write-Error "Failed to return any results" -ErrorAction Continue
+            Write-Error "Failed to return any results for $query from $dataset" -ErrorAction Continue 
         }
     }
 }

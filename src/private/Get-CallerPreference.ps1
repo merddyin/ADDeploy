@@ -1,42 +1,61 @@
 ﻿function Get-CallerPreference {
-    <#
-    .Synopsis
-       Fetches "Preference" variable values from the caller's scope.
+<#
+    .SYNOPSIS
+        Fetches "Preference" variable values from the caller's scope.
+
     .DESCRIPTION
-       Script module functions do not automatically inherit their caller's variables, but they can be
-       obtained through the $PSCmdlet variable in Advanced Functions.  This function is a helper function
-       for any script module Advanced Function; by passing in the values of $ExecutionContext.SessionState
-       and $PSCmdlet, Get-CallerPreference will set the caller's preference variables locally.
+        Script module functions do not automatically inherit their caller's variables, but they can be
+        obtained through the $PSCmdlet variable in Advanced Functions. This function is a helper function
+        for any script module Advanced Function; by passing in the values of $ExecutionContext.SessionState
+        and $PSCmdlet, Get-CallerPreference will set the caller's preference variables locally.
+
     .PARAMETER Cmdlet
-       The $PSCmdlet object from a script module Advanced Function.
+        The $PSCmdlet object from a script module Advanced Function.
+
     .PARAMETER SessionState
-       The $ExecutionContext.SessionState object from a script module Advanced Function.  This is how the
-       Get-CallerPreference function sets variables in its callers' scope, even if that caller is in a different
-       script module.
+        The $ExecutionContext.SessionState object from a script module Advanced Function. This is how the
+        Get-CallerPreference function sets variables in its callers' scope, even if that caller is in a different
+        script module.
+
     .PARAMETER Name
-       Optional array of parameter names to retrieve from the caller's scope.  Default is to retrieve all
-       Preference variables as defined in the about_Preference_Variables help file (as of PowerShell 4.0)
-       This parameter may also specify names of variables that are not in the about_Preference_Variables
-       help file, and the function will retrieve and set those as well.
-    .EXAMPLE
-       Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
+        Optional array of parameter names to retrieve from the caller's scope. Default is to retrieve all
+        Preference variables as defined in the about_Preference_Variables help file (as of PowerShell 4.0)
+        This parameter may also specify names of variables that are not in the about_Preference_Variables
+        help file, and the function will retrieve and set those as well.
 
-       Imports the default PowerShell preference variables from the caller into the local scope.
     .EXAMPLE
-       Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -Name 'ErrorActionPreference','SomeOtherVariable'
+        Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
+        
+        Imports the default PowerShell preference variables from the caller into the local scope.
 
-       Imports only the ErrorActionPreference and SomeOtherVariable variables into the local scope.
     .EXAMPLE
-       'ErrorActionPreference','SomeOtherVariable' | Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState
+        Get-CallerPreference -Cmdlet $PSCmdlet -SessionState $ExecutionContext.SessionState -Name 'ErrorActionPreference','SomeOtherVariable'
+ 
+        Imports only the ErrorActionPreference and SomeOtherVariable variables into the local scope.
 
-       Same as Example 2, but sends variable names to the Name parameter via pipeline input.
     .INPUTS
-       String
+        String.
+
     .OUTPUTS
-       None.  This function does not produce pipeline output.
+        None. This function does not produce pipeline output.
+
+    .NOTES
+        Help Last Updated: 10/26/2020
+
+        Source: From https://gallery.technet.microsoft.com/scriptcenter/Inherit-Preference-82343b9d
+
+        Cmdlet Version: 1.0
+        Cmdlet Status: Release
+
+        Copyright (c) Deloitte. All rights reserved.
+
+        Use of this source code is subject to the terms of use as outlined in the included LICENSE file, or elsewhere within this file. This
+        source code is provided 'AS IS', with NO WARRANTIES either expressed or implied. Use of this code within your environment is done at your
+        own risk, and Deloitte assumes no liability.
+
     .LINK
-       about_Preference_Variables
-    #>
+        https://deloitte.com
+#>
 
     [CmdletBinding(DefaultParameterSetName = 'AllVariables')]
     param (
