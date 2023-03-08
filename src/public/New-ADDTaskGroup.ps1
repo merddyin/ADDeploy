@@ -262,7 +262,7 @@ function New-ADDTaskGroup {
 		if($PIElements.TierID){
 			$TierID = $PIElements.TierID
 		}else{
-			$DNTierID = ($TargetOUDN | Select-String -Pattern $($CETierDNRegEx -join "|")).Matches.Value
+			$DNTierID = ($TargetOUDN | Select-String -Pattern $($CETierDNRegEx)).Matches.Value
 			$FullTierID = ($DNTierID -split "=")[1]
 			$TierID = $TierHash[$FullTierID]
 		}
