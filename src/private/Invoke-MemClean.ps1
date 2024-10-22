@@ -34,7 +34,7 @@ function Invoke-MemClean {
         own risk, and Deloitte assumes no liability.
 
     .LINK
-        https://deloitte.com
+        
 #>
 	[CmdletBinding()]
 	param()
